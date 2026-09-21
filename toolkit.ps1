@@ -1089,6 +1089,216 @@ $rows
     }
 
     # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+    # â”€â”€ Extra System Audit tools â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    Add-ToolCard "System Audit" "Installed Hotfixes" "List all installed Windows updates and patches" "PATCH" {
+        Get-HotFix | Select-Object HotFixID, Description, InstalledOn | Sort-Object InstalledOn -Descending |
+            Format-Table | Out-String
+    }
+
+    Add-ToolCard "System Audit" "GPU / Display Info" "Enumerate display adapters and monitor details" "GPU" {
+        Get-CimInstance Win32_VideoController | Select-Object Name, DriverVersion, VideoModeDescription,
+            @{N="VRAM(MB)";E={[math]::Round($_.AdapterRAM/1MB,0)}} | Format-Table | Out-String
+        Get-CimInstance Win32_DesktopMonitor | Select-Object Name, ScreenWidth, ScreenHeight | Format-Table | Out-String
+    }
+
+    # â”€â”€ Extra Network tools â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    Add-ToolCard "Network" "Full IP Configuration" "Complete ipconfig /all output for all adapters" "IPCFG" {
+        ipconfig /all
+    }
+
+    Add-ToolCard "Network" "Connectivity Ping Test" "Ping Cloudflare, Google and local gateway" "PING" {
+        foreach ($h in @("1.1.1.1","8.8.8.8","192.168.1.1")) {
+            $r = Test-Connection -ComputerName $h -Count 2 -ErrorAction SilentlyContinue
+            if ($r) { Write-Output "OK    $h  avg $([math]::Round(($r | Measure-Object ResponseTime -Average).Average,0)) ms" }
+            else     { Write-Output "FAIL  $h  unreachable" }
+        }
+    }
+
+    Add-ToolCard "Network" "Traceroute to Internet" "Trace hops to 8.8.8.8 to find routing issues" "TRACE" {
+        tracert -d -h 20 8.8.8.8
+    }
+
+    # â”€â”€ Extra Security tools â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    Add-ToolCard "Security" "Defender Real-Time Status" "Show Windows Defender real-time protection state" "RT" {
+        $mp = Get-MpComputerStatus -ErrorAction SilentlyContinue
+        if ($mp) {
+            Write-Output "Real-Time Protection : $($mp.RealTimeProtectionEnabled)"
+            Write-Output "Antivirus Enabled    : $($mp.AntivirusEnabled)"
+            Write-Output "Signature Version    : $($mp.AntivirusSignatureVersion)"
+            Write-Output "Last Quick Scan      : $($mp.QuickScanEndTime)"
+            Write-Output "Last Full Scan       : $($mp.FullScanEndTime)"
+        } else { Write-Output "Unable to query Defender status." }
+    }
+
+    Add-ToolCard "Security" "Shared Folders Audit" "List all active network shares on this machine" "SHARE" {
+        Get-SmbShare | Select-Object Name, Path, Description, ShareState | Format-Table | Out-String
+    }
+
+    # â”€â”€ Extra Maintenance tools â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    Add-ToolCard "Maintenance" "Optimize Drives" "Run Defrag or TRIM on all eligible volumes" "OPTIM" {
+        Get-Volume | Where-Object { $_.DriveType -eq 'Fixed' -and $_.DriveLetter } | ForEach-Object {
+            Write-Output "Optimizing $($_.DriveLetter): $($_.FileSystemLabel)..."
+            Optimize-Volume -DriveLetter $_.DriveLetter -Verbose 2>&1 | Out-String
+        }
+    }
+
+    Add-ToolCard "Maintenance" "Clear Event Logs" "Wipe all Windows event logs (irreversible)" "CLRLOG" {
+        $r = [System.Windows.Forms.MessageBox]::Show("Clear ALL Windows event logs? This cannot be undone.","Confirm","YesNo","Warning")
+        if ($r -eq "Yes") {
+            Get-WinEvent -ListLog * -ErrorAction SilentlyContinue | Where-Object RecordCount -gt 0 | ForEach-Object {
+                try { [System.Diagnostics.Eventing.Reader.EventLogSession]::GlobalSession.ClearLog($_.LogName) }
+                catch { }
+            }
+            Write-Output "All Windows event logs cleared."
+        } else { Write-Output "Cancelled." }
+    }
+
+    Add-ToolCard "Maintenance" "Check Windows Update" "Check for pending Windows updates via wuauclt" "WUA" {
+        Write-Output "Triggering Windows Update detection..."
+        Start-Process "wuauclt.exe" -ArgumentList "/detectnow"
+        Start-Process "ms-settings:windowsupdate"
+        Write-Output "Windows Update opened. Check the Settings window."
+    }
+
+    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    # SOFTWARE INSTALLER TAB
+    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    Add-ToolCard "Software" "7-Zip" "Free open-source file archiver with high compression" "FREE" {
+        Write-Output "Installing 7-Zip..."
+        if (Get-Command winget -ErrorAction SilentlyContinue) {
+            winget install --id 7zip.7-Zip -e --accept-source-agreements --accept-package-agreements
+        } else {
+            $dst = "$env:TEMP\7z-setup.exe"
+            Write-Output "Downloading 7-Zip installer..."
+            (New-Object System.Net.WebClient).DownloadFile("https://www.7-zip.org/a/7z2407-x64.exe", $dst)
+            Start-Process $dst -Wait
+        }
+        Write-Output "Done."
+    }
+
+    Add-ToolCard "Software" "VLC Media Player" "Free, open-source multimedia player for all formats" "FREE" {
+        Write-Output "Installing VLC..."
+        if (Get-Command winget -ErrorAction SilentlyContinue) {
+            winget install --id VideoLAN.VLC -e --accept-source-agreements --accept-package-agreements
+        } else {
+            Start-Process "https://www.videolan.org/vlc/download-windows.html"
+            Write-Output "Opened VLC download page in browser."
+        }
+        Write-Output "Done."
+    }
+
+    Add-ToolCard "Software" "RustDesk" "Open-source self-hosted remote desktop solution" "REMOTE" {
+        Write-Output "Installing RustDesk..."
+        if (Get-Command winget -ErrorAction SilentlyContinue) {
+            winget install --id RustDesk.RustDesk -e --accept-source-agreements --accept-package-agreements
+        } else {
+            Start-Process "https://github.com/rustdesk/rustdesk/releases/latest"
+            Write-Output "Opened RustDesk latest releases page in browser."
+        }
+        Write-Output "Done."
+    }
+
+    Add-ToolCard "Software" "AnyDesk" "Fast, lightweight remote desktop and support tool" "REMOTE" {
+        Write-Output "Installing AnyDesk..."
+        if (Get-Command winget -ErrorAction SilentlyContinue) {
+            winget install --id AnyDesk.AnyDesk -e --accept-source-agreements --accept-package-agreements
+        } else {
+            $dst = "$env:TEMP\AnyDeskSetup.exe"
+            Write-Output "Downloading AnyDesk..."
+            (New-Object System.Net.WebClient).DownloadFile("https://download.anydesk.com/AnyDesk.exe", $dst)
+            Start-Process $dst -Wait
+        }
+        Write-Output "Done."
+    }
+
+    Add-ToolCard "Software" "Quick Assist" "Microsoft built-in remote support and screen sharing" "MS" {
+        Write-Output "Launching Quick Assist..."
+        $qa = Get-Command quickassist -ErrorAction SilentlyContinue
+        if ($qa) {
+            Start-Process "quickassist"
+            Write-Output "Quick Assist launched."
+        } else {
+            Start-Process "ms-windows-store://pdp/?ProductId=9P7BP5VNWKX5"
+            Write-Output "Opened Quick Assist in Microsoft Store."
+        }
+    }
+
+    Add-ToolCard "Software" "Brave Browser" "Privacy-focused Chromium browser with built-in ad blocking" "FREE" {
+        Write-Output "Installing Brave Browser..."
+        if (Get-Command winget -ErrorAction SilentlyContinue) {
+            winget install --id Brave.Brave -e --accept-source-agreements --accept-package-agreements
+        } else {
+            $dst = "$env:TEMP\BraveSetup.exe"
+            Write-Output "Downloading Brave..."
+            (New-Object System.Net.WebClient).DownloadFile("https://laptop-updates.brave.com/latest/winx64", $dst)
+            Start-Process $dst -Wait
+        }
+        Write-Output "Done."
+    }
+
+    Add-ToolCard "Software" "Mozilla Firefox" "Trusted open-source browser by Mozilla Foundation" "FREE" {
+        Write-Output "Installing Firefox..."
+        if (Get-Command winget -ErrorAction SilentlyContinue) {
+            winget install --id Mozilla.Firefox -e --accept-source-agreements --accept-package-agreements
+        } else {
+            $dst = "$env:TEMP\FirefoxSetup.exe"
+            Write-Output "Downloading Firefox..."
+            (New-Object System.Net.WebClient).DownloadFile("https://download.mozilla.org/?product=firefox-latest&os=win64&lang=en-US", $dst)
+            Start-Process $dst -Wait
+        }
+        Write-Output "Done."
+    }
+
+    Add-ToolCard "Software" "PDFgear" "Free PDF editor, reader and converter with AI features" "FREE" {
+        Write-Output "Installing PDFgear..."
+        if (Get-Command winget -ErrorAction SilentlyContinue) {
+            winget install --id PDFgear.PDFgear -e --accept-source-agreements --accept-package-agreements
+        } else {
+            Start-Process "https://www.pdfgear.com/download/"
+            Write-Output "Opened PDFgear download page in browser."
+        }
+        Write-Output "Done."
+    }
+
+    Add-ToolCard "Software" "Office 2021 (English)" "Microsoft Office Professional Plus 2021 - English (EN-US)" "MS" {
+        $url = "https://officecdn.microsoft.com/db/492350f6-3a01-4f97-b9c0-c7c6ddf67d60/media/en-us/ProPlus2021Retail.img"
+        $dst = "$env:TEMP\ProPlus2021Retail_EN.img"
+        Write-Output "Starting Office 2021 English download (~4 GB). Please wait..."
+        Write-Output "Download location: $dst"
+        try {
+            Start-BitsTransfer -Source $url -Destination $dst -ErrorAction Stop
+            Write-Output "Download complete. Mounting disk image..."
+            $mount  = Mount-DiskImage -ImagePath $dst -PassThru
+            $letter = ($mount | Get-Volume).DriveLetter
+            Write-Output "Running Office setup from drive $letter..."
+            Start-Process "$letter`:\setup.exe"
+            Write-Output "Office installer launched. Dismount the drive after installation completes."
+        } catch {
+            Write-Output "Error: $_"
+            Write-Output "Manual download URL: $url"
+        }
+    }
+
+    Add-ToolCard "Software" "Office 2021 (Arabic)" "Microsoft Office Professional Plus 2021 - Arabic (AR-SA)" "MS" {
+        $url = "https://officecdn.microsoft.com/db/492350f6-3a01-4f97-b9c0-c7c6ddf67d60/media/ar-sa/ProPlus2021Retail.img"
+        $dst = "$env:TEMP\ProPlus2021Retail_AR.img"
+        Write-Output "Starting Office 2021 Arabic download (~4 GB). Please wait..."
+        Write-Output "Download location: $dst"
+        try {
+            Start-BitsTransfer -Source $url -Destination $dst -ErrorAction Stop
+            Write-Output "Download complete. Mounting disk image..."
+            $mount  = Mount-DiskImage -ImagePath $dst -PassThru
+            $letter = ($mount | Get-Volume).DriveLetter
+            Write-Output "Running Office setup from drive $letter..."
+            Start-Process "$letter`:\setup.exe"
+            Write-Output "Office installer launched. Dismount the drive after installation completes."
+        } catch {
+            Write-Output "Error: $_"
+            Write-Output "Manual download URL: $url"
+        }
+    }
+
     # SIDEBAR NAV BUTTONS
     # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     # Category key -> Segoe MDL2 Assets glyph (all within BMP, [char] is fine)
@@ -1098,6 +1308,7 @@ $rows
         "Network"       = [char]0xE968   # Network
         "Security"      = [char]0xE72E   # Lock
         "Maintenance"   = [char]0xE74D   # Recycle/Clean
+        "Software"      = [char]0xE896   # Download/Install
     }
 
     $navBtns = @()
