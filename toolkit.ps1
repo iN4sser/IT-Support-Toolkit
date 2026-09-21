@@ -968,6 +968,81 @@ $rows
     }
 
     # Network
+    # Network Tools & DNS Config
+    Add-ToolCard "Network" "Speedtest (Ookla)" "Run Speedtest.net CLI test for latency, download & upload" "SPEED" {
+        Write-Output "Running Internet Speed Test..."
+        if (Get-Command winget -ErrorAction SilentlyContinue) {
+            $cli = Get-Command speedtest -ErrorAction SilentlyContinue
+            if (-not $cli) {
+                Write-Output "Installing Ookla Speedtest CLI via Winget..."
+                winget install --id Ookla.Speedtest -e --accept-source-agreements --accept-package-agreements | Out-Null
+            }
+        }
+        $cliPath = Get-Command speedtest -ErrorAction SilentlyContinue
+        if ($cliPath) {
+            & speedtest --accept-license --accept-gdpr
+        } else {
+            Write-Output "Fast.com / Ookla fallback: Testing download speed using web stream..."
+            $testUrl = "https://speed.hetzner.de/100MB.bin"
+            $sw = [System.Diagnostics.Stopwatch]::StartNew()
+            $wc = New-Object System.Net.WebClient
+            try {
+                $data = $wc.DownloadData($testUrl)
+                $sw.Stop()
+                $mb = $data.Length / 1MB
+                $sec = $sw.Elapsed.TotalSeconds
+                $mbps = [math]::Round(($mb * 8) / $sec, 2)
+                Write-Output "Download Speed: $mbps Mbps (Downloaded $($mb)MB in $([math]::Round($sec,2))s)"
+            } catch {
+                Write-Output "Speed test fallback failed. Opening speedtest.net in browser..."
+                Start-Process "https://www.speedtest.net"
+            }
+        }
+    }
+
+    Add-ToolCard "Network" "Set DNS: Google" "Set IPv4 DNS to Google Public DNS (8.8.8.8, 8.8.4.4)" "DNS" {
+        Write-Output "Setting DNS servers to Google (8.8.8.8, 8.8.4.4)..."
+        $adapters = Get-NetAdapter | Where-Object { $_.Status -eq 'Up' -and $_.PhysicalMediaType -ne 'Unspecified' }
+        foreach ($a in $adapters) {
+            Set-DnsClientServerAddress -InterfaceAlias $a.Name -ServerAddresses ("8.8.8.8","8.8.4.4") -ErrorAction SilentlyContinue
+            Write-Output "Updated adapter: $($a.Name)"
+        }
+        Clear-DnsClientCache -ErrorAction SilentlyContinue
+        Write-Output "Google DNS configured and DNS cache flushed."
+    }
+
+    Add-ToolCard "Network" "Set DNS: Cloudflare" "Set IPv4 DNS to Cloudflare (1.1.1.1, 1.0.0.1)" "DNS" {
+        Write-Output "Setting DNS servers to Cloudflare (1.1.1.1, 1.0.0.1)..."
+        $adapters = Get-NetAdapter | Where-Object { $_.Status -eq 'Up' -and $_.PhysicalMediaType -ne 'Unspecified' }
+        foreach ($a in $adapters) {
+            Set-DnsClientServerAddress -InterfaceAlias $a.Name -ServerAddresses ("1.1.1.1","1.0.0.1") -ErrorAction SilentlyContinue
+            Write-Output "Updated adapter: $($a.Name)"
+        }
+        Clear-DnsClientCache -ErrorAction SilentlyContinue
+        Write-Output "Cloudflare DNS configured and DNS cache flushed."
+    }
+
+    Add-ToolCard "Network" "Set DNS: AdGuard (No Ads)" "Set IPv4 DNS to AdGuard Ad-Blocking (94.140.14.14, 94.140.15.15)" "ADS" {
+        Write-Output "Setting DNS servers to AdGuard Ad-Blocking (94.140.14.14, 94.140.15.15)..."
+        $adapters = Get-NetAdapter | Where-Object { $_.Status -eq 'Up' -and $_.PhysicalMediaType -ne 'Unspecified' }
+        foreach ($a in $adapters) {
+            Set-DnsClientServerAddress -InterfaceAlias $a.Name -ServerAddresses ("94.140.14.14","94.140.15.15") -ErrorAction SilentlyContinue
+            Write-Output "Updated adapter: $($a.Name)"
+        }
+        Clear-DnsClientCache -ErrorAction SilentlyContinue
+        Write-Output "AdGuard DNS (Ad-Blocking) configured and DNS cache flushed."
+    }
+
+    Add-ToolCard "Network" "Set DNS: Automatic (DHCP)" "Reset DNS settings back to Automatic (DHCP / No custom DNS)" "AUTO" {
+        Write-Output "Resetting DNS servers to Automatic (DHCP)..."
+        $adapters = Get-NetAdapter | Where-Object { $_.Status -eq 'Up' -and $_.PhysicalMediaType -ne 'Unspecified' }
+        foreach ($a in $adapters) {
+            Set-DnsClientServerAddress -InterfaceAlias $a.Name -ResetServerAddresses -ErrorAction SilentlyContinue
+            Write-Output "Reset adapter: $($a.Name)"
+        }
+        Clear-DnsClientCache -ErrorAction SilentlyContinue
+        Write-Output "DNS reset to Automatic (DHCP) and DNS cache flushed."
+    }
     Add-ToolCard "Network" "Flush DNS Cache" "Clear DNS resolver cache and re-register DNS" "DNS" {
         Clear-DnsClientCache -ErrorAction SilentlyContinue
         ipconfig /flushdns
