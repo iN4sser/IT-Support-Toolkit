@@ -1,0 +1,24 @@
+name: PS-Analysis
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  analyze:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          Install-Module -Name PSScriptAnalyzer -Force -Scope CurrentUser
+          $results = Invoke-ScriptAnalyzer -Path ./toolkit.ps1 -Severity Error,Warning
+          if ($results) {
+            $results | Format-Table
+            exit 1
+          } else {
+            Write-Host "PSScriptAnalyzer passed with no errors or warnings."
+          }
