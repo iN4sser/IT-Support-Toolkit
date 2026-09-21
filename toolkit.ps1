@@ -727,7 +727,15 @@ function Invoke-ModernGUI {
     $catPanels = [System.Collections.Generic.Dictionary[string, [System.Windows.Forms.FlowLayoutPanel]]]::new()
 
     # â”€â”€ Tool card factory â”€â”€
-    function Add-ToolCard([string]$cat, [string]$title, [string]$desc, [string]$badge, [scriptblock]$action) {
+    function Add-ToolCard([string]$cat, [string]$title, [string]$desc, [string]$badge, $optionsOrAction, [scriptblock]$actionBlock) {
+        $options = $null
+        $action  = $null
+        if ($optionsOrAction -is [scriptblock]) {
+            $action = $optionsOrAction
+        } else {
+            $options = $optionsOrAction
+            $action  = $actionBlock
+        }
         # Ensure category FlowLayoutPanel exists inside cardHost
         if (-not $catPanels.ContainsKey($cat)) {
             $fp              = New-Object System.Windows.Forms.FlowLayoutPanel
@@ -773,17 +781,39 @@ function Invoke-ModernGUI {
         $ttl.Cursor     = [System.Windows.Forms.Cursors]::Hand
         $card.Controls.Add($ttl)
 
-        $dsc            = New-Object System.Windows.Forms.Label
-        $dsc.Text       = $desc
-        $dsc.Font       = New-Object System.Drawing.Font("Segoe UI", 8.5)
-        $dsc.ForeColor  = $clrMuted
-        $dsc.Location   = New-Object System.Drawing.Point(13, 39)
-        $dsc.Size       = New-Object System.Drawing.Size(283, 38)
-        $dsc.Cursor     = [System.Windows.Forms.Cursors]::Hand
-        $card.Controls.Add($dsc)
+        if ($options -and $options.Count -gt 0) {
+            $dsc            = New-Object System.Windows.Forms.Label
+            $dsc.Text       = $desc
+            $dsc.Font       = New-Object System.Drawing.Font("Segoe UI", 8)
+            $dsc.ForeColor  = $clrMuted
+            $dsc.Location   = New-Object System.Drawing.Point(13, 36)
+            $dsc.Size       = New-Object System.Drawing.Size(283, 20)
+            $dsc.Cursor     = [System.Windows.Forms.Cursors]::Hand
+            $card.Controls.Add($dsc)
+
+            $cmb            = New-Object System.Windows.Forms.ComboBox
+            $cmb.DropDownStyle = [System.Windows.Forms.ComboBoxStyle]::DropDownList
+            $cmb.Font       = New-Object System.Drawing.Font("Segoe UI", 8.5)
+            $cmb.BackColor  = [System.Drawing.Color]::FromArgb(13, 17, 23)
+            $cmb.ForeColor  = $clrText
+            $cmb.Location   = New-Object System.Drawing.Point(13, 56)
+            $cmb.Size       = New-Object System.Drawing.Size(280, 24)
+            foreach ($opt in $options) { [void]$cmb.Items.Add($opt) }
+            $cmb.SelectedIndex = 0
+            $card.Controls.Add($cmb)
+        } else {
+            $dsc            = New-Object System.Windows.Forms.Label
+            $dsc.Text       = $desc
+            $dsc.Font       = New-Object System.Drawing.Font("Segoe UI", 8.5)
+            $dsc.ForeColor  = $clrMuted
+            $dsc.Location   = New-Object System.Drawing.Point(13, 39)
+            $dsc.Size       = New-Object System.Drawing.Size(283, 38)
+            $dsc.Cursor     = [System.Windows.Forms.Cursors]::Hand
+            $card.Controls.Add($dsc)
+        }
 
         # Tag-based dispatch pattern (avoids PowerShell closure bug)
-        $card.Tag = @{ Title = $title; Block = $action; Root = $card }
+        $card.Tag = @{ Title = $title; Block = $action; Root = $card; Cmb = $cmb }
         $bar.Tag  = @{ Root = $card }
         $bdg.Tag  = @{ Root = $card }
         $ttl.Tag  = @{ Root = $card }
@@ -794,12 +824,15 @@ function Invoke-ModernGUI {
             $meta = $root.Tag
             $t    = $meta.Title
             $act  = $meta.Block
+            $c    = $meta.Cmb
+            $selectedOpt = if ($c) { $c.SelectedItem.ToString() } else { $null }
+
             $hudStatus.Text      = "Running: $t"
             $hudStatus.ForeColor = $clrAmber
             $logBox.AppendText("`r`n[$(Get-Date -Format 'HH:mm:ss')]  $t`r`n")
             $form.Refresh()
             try {
-                $out = & $act *>&1 | Out-String
+                $out = if ($null -ne $selectedOpt) { & $act $selectedOpt *>&1 | Out-String } else { & $act *>&1 | Out-String }
                 if (-not [string]::IsNullOrWhiteSpace($out)) {
                     $logBox.AppendText($out.TrimEnd())
                     $logBox.AppendText("`r`n")
@@ -1000,48 +1033,44 @@ $rows
         }
     }
 
-    Add-ToolCard "Network" "Set DNS: Google" "Set IPv4 DNS to Google Public DNS (8.8.8.8, 8.8.4.4)" "DNS" {
-        Write-Output "Setting DNS servers to Google (8.8.8.8, 8.8.4.4)..."
+    Add-ToolCard "Network" "Configure DNS Server" "Select provider & click card to apply" "DNS" @(
+        "Google (8.8.8.8, 8.8.4.4)",
+        "Cloudflare (1.1.1.1, 1.0.0.1)",
+        "AdGuard - No Ads (94.140.14.14)",
+        "Automatic (DHCP / Default)"
+    ) {
+        param($selection)
+        Write-Output "Selected DNS Provider: $selection"
         $adapters = Get-NetAdapter | Where-Object { $_.Status -eq 'Up' -and $_.PhysicalMediaType -ne 'Unspecified' }
-        foreach ($a in $adapters) {
-            Set-DnsClientServerAddress -InterfaceAlias $a.Name -ServerAddresses ("8.8.8.8","8.8.4.4") -ErrorAction SilentlyContinue
-            Write-Output "Updated adapter: $($a.Name)"
-        }
-        Clear-DnsClientCache -ErrorAction SilentlyContinue
-        Write-Output "Google DNS configured and DNS cache flushed."
-    }
 
-    Add-ToolCard "Network" "Set DNS: Cloudflare" "Set IPv4 DNS to Cloudflare (1.1.1.1, 1.0.0.1)" "DNS" {
-        Write-Output "Setting DNS servers to Cloudflare (1.1.1.1, 1.0.0.1)..."
-        $adapters = Get-NetAdapter | Where-Object { $_.Status -eq 'Up' -and $_.PhysicalMediaType -ne 'Unspecified' }
-        foreach ($a in $adapters) {
-            Set-DnsClientServerAddress -InterfaceAlias $a.Name -ServerAddresses ("1.1.1.1","1.0.0.1") -ErrorAction SilentlyContinue
-            Write-Output "Updated adapter: $($a.Name)"
+        switch -Wildcard ($selection) {
+            "*Google*" {
+                foreach ($a in $adapters) {
+                    Set-DnsClientServerAddress -InterfaceAlias $a.Name -ServerAddresses ("8.8.8.8","8.8.4.4") -ErrorAction SilentlyContinue
+                    Write-Output "Updated adapter: $($a.Name) -> 8.8.8.8, 8.8.4.4"
+                }
+            }
+            "*Cloudflare*" {
+                foreach ($a in $adapters) {
+                    Set-DnsClientServerAddress -InterfaceAlias $a.Name -ServerAddresses ("1.1.1.1","1.0.0.1") -ErrorAction SilentlyContinue
+                    Write-Output "Updated adapter: $($a.Name) -> 1.1.1.1, 1.0.0.1"
+                }
+            }
+            "*AdGuard*" {
+                foreach ($a in $adapters) {
+                    Set-DnsClientServerAddress -InterfaceAlias $a.Name -ServerAddresses ("94.140.14.14","94.140.15.15") -ErrorAction SilentlyContinue
+                    Write-Output "Updated adapter: $($a.Name) -> 94.140.14.14, 94.140.15.15"
+                }
+            }
+            "*Automatic*" {
+                foreach ($a in $adapters) {
+                    Set-DnsClientServerAddress -InterfaceAlias $a.Name -ResetServerAddresses -ErrorAction SilentlyContinue
+                    Write-Output "Reset adapter: $($a.Name) -> Automatic (DHCP)"
+                }
+            }
         }
         Clear-DnsClientCache -ErrorAction SilentlyContinue
-        Write-Output "Cloudflare DNS configured and DNS cache flushed."
-    }
-
-    Add-ToolCard "Network" "Set DNS: AdGuard (No Ads)" "Set IPv4 DNS to AdGuard Ad-Blocking (94.140.14.14, 94.140.15.15)" "ADS" {
-        Write-Output "Setting DNS servers to AdGuard Ad-Blocking (94.140.14.14, 94.140.15.15)..."
-        $adapters = Get-NetAdapter | Where-Object { $_.Status -eq 'Up' -and $_.PhysicalMediaType -ne 'Unspecified' }
-        foreach ($a in $adapters) {
-            Set-DnsClientServerAddress -InterfaceAlias $a.Name -ServerAddresses ("94.140.14.14","94.140.15.15") -ErrorAction SilentlyContinue
-            Write-Output "Updated adapter: $($a.Name)"
-        }
-        Clear-DnsClientCache -ErrorAction SilentlyContinue
-        Write-Output "AdGuard DNS (Ad-Blocking) configured and DNS cache flushed."
-    }
-
-    Add-ToolCard "Network" "Set DNS: Automatic (DHCP)" "Reset DNS settings back to Automatic (DHCP / No custom DNS)" "AUTO" {
-        Write-Output "Resetting DNS servers to Automatic (DHCP)..."
-        $adapters = Get-NetAdapter | Where-Object { $_.Status -eq 'Up' -and $_.PhysicalMediaType -ne 'Unspecified' }
-        foreach ($a in $adapters) {
-            Set-DnsClientServerAddress -InterfaceAlias $a.Name -ResetServerAddresses -ErrorAction SilentlyContinue
-            Write-Output "Reset adapter: $($a.Name)"
-        }
-        Clear-DnsClientCache -ErrorAction SilentlyContinue
-        Write-Output "DNS reset to Automatic (DHCP) and DNS cache flushed."
+        Write-Output "DNS configuration applied and DNS cache flushed."
     }
     Add-ToolCard "Network" "Flush DNS Cache" "Clear DNS resolver cache and re-register DNS" "DNS" {
         Clear-DnsClientCache -ErrorAction SilentlyContinue
