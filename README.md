@@ -14,6 +14,12 @@ Launch directly in Windows PowerShell (Admin recommended, or allow the auto-elev
 irm https://raw.githubusercontent.com/iN4sser/IT-Support-Toolkit/main/toolkit.ps1 | iex
 ```
 
+Or run via short URL:
+
+```powershell
+irm https://bit.ly/4iDucQz | iex
+```
+
 ---
 
 ## 🖥️ Local Usage
