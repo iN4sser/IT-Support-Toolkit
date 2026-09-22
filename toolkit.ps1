@@ -1500,38 +1500,251 @@ $rows
 # -------------------------------------------------------------------------
 # 5. MAIN MENU LOOP (Terminal Mode)
 # -------------------------------------------------------------------------
+# Helper functions for new terminal sub-menu actions
+
+function Invoke-SpeedtestCLI {
+    Show-ActionHeader "Internet Speed Test (Ookla)"
+    Write-Host "[*] Running Internet Speed Test..." -ForegroundColor Yellow
+    if (Get-Command winget -ErrorAction SilentlyContinue) {
+        $cli = Get-Command speedtest -ErrorAction SilentlyContinue
+        if (-not $cli) {
+            Write-Host "[*] Installing Ookla Speedtest CLI via Winget..." -ForegroundColor Cyan
+            winget install --id Ookla.Speedtest -e --accept-source-agreements --accept-package-agreements | Out-Null
+        }
+    }
+    $cliPath = Get-Command speedtest -ErrorAction SilentlyContinue
+    if ($cliPath) {
+        & speedtest --accept-license --accept-gdpr
+    } else {
+        Write-Host "[*] Testing download speed via web stream fallback..." -ForegroundColor Yellow
+        $testUrl = "https://speed.hetzner.de/100MB.bin"
+        $sw = [System.Diagnostics.Stopwatch]::StartNew()
+        $wc = New-Object System.Net.WebClient
+        try {
+            $data = $wc.DownloadData($testUrl)
+            $sw.Stop()
+            $mb = $data.Length / 1MB
+            $sec = $sw.Elapsed.TotalSeconds
+            $mbps = [math]::Round(($mb * 8) / $sec, 2)
+            Write-Host "[+] Download Speed: $mbps Mbps ($($mb)MB downloaded in $([math]::Round($sec,2))s)" -ForegroundColor Green
+        } catch {
+            Write-Host "[-] Speed test fallback failed. Opening speedtest.net in browser..." -ForegroundColor Red
+            Start-Process "https://www.speedtest.net"
+        }
+    }
+    Wait-UserPrompt
+}
+
+function Invoke-ConfigureDNSMenu {
+    Show-ActionHeader "Configure DNS Server Settings"
+    Write-Host "Select DNS Provider:" -ForegroundColor Yellow
+    Write-Host " [1] Google DNS (8.8.8.8, 8.8.4.4)"
+    Write-Host " [2] Cloudflare DNS (1.1.1.1, 1.0.0.1)"
+    Write-Host " [3] AdGuard DNS - No Ads (94.140.14.14, 94.140.15.15)"
+    Write-Host " [4] Reset to Automatic (DHCP / Default)"
+    Write-Host " [Enter] Return to menu"
+    Write-Host "Select option: " -NoNewline -ForegroundColor Cyan
+    $choice = [Console]::ReadLine()
+
+    $adapters = Get-NetAdapter | Where-Object { $_.Status -eq 'Up' -and $_.PhysicalMediaType -ne 'Unspecified' }
+    switch ($choice) {
+        "1" {
+            foreach ($a in $adapters) {
+                Set-DnsClientServerAddress -InterfaceAlias $a.Name -ServerAddresses ("8.8.8.8","8.8.4.4") -ErrorAction SilentlyContinue
+                Write-Host "[+] Updated $($a.Name) -> 8.8.8.8, 8.8.4.4" -ForegroundColor Green
+            }
+        }
+        "2" {
+            foreach ($a in $adapters) {
+                Set-DnsClientServerAddress -InterfaceAlias $a.Name -ServerAddresses ("1.1.1.1","1.0.0.1") -ErrorAction SilentlyContinue
+                Write-Host "[+] Updated $($a.Name) -> 1.1.1.1, 1.0.0.1" -ForegroundColor Green
+            }
+        }
+        "3" {
+            foreach ($a in $adapters) {
+                Set-DnsClientServerAddress -InterfaceAlias $a.Name -ServerAddresses ("94.140.14.14","94.140.15.15") -ErrorAction SilentlyContinue
+                Write-Host "[+] Updated $($a.Name) -> 94.140.14.14, 94.140.15.15" -ForegroundColor Green
+            }
+        }
+        "4" {
+            foreach ($a in $adapters) {
+                Set-DnsClientServerAddress -InterfaceAlias $a.Name -ResetServerAddresses -ErrorAction SilentlyContinue
+                Write-Host "[+] Reset $($a.Name) -> Automatic (DHCP)" -ForegroundColor Green
+            }
+        }
+        default { return }
+    }
+    Clear-DnsClientCache -ErrorAction SilentlyContinue
+    Write-Host "[+] DNS configuration applied and DNS cache flushed." -ForegroundColor Green
+    Wait-UserPrompt
+}
+
+function Invoke-SoftwareInstallerMenu {
+    while ($true) {
+        Show-ActionHeader "Software Installers"
+        Write-Host "Select Software to Install:" -ForegroundColor Yellow
+        Write-Host " [1]  7-Zip (Archiver)"
+        Write-Host " [2]  VLC Media Player"
+        Write-Host " [3]  RustDesk (Remote Desktop)"
+        Write-Host " [4]  AnyDesk (Remote Desktop)"
+        Write-Host " [5]  Quick Assist"
+        Write-Host " [6]  Brave Browser"
+        Write-Host " [7]  Mozilla Firefox"
+        Write-Host " [8]  PDFgear (PDF Editor)"
+        Write-Host " [9]  Microsoft Office 2021 (English)"
+        Write-Host " [10] Microsoft Office 2021 (Arabic)"
+        Write-Host " [B]  Back to Main Menu"
+        Write-Host ""
+        Write-Host "Select option [1-10 / B]: " -NoNewline -ForegroundColor Cyan
+        $choice = [Console]::ReadLine()
+        if ($null -eq $choice -or $choice.ToUpper() -eq "B") { break }
+
+        switch ($choice) {
+            "1" {
+                Write-Host "[*] Installing 7-Zip..." -ForegroundColor Yellow
+                if (Get-Command winget -ErrorAction SilentlyContinue) {
+                    winget install --id 7zip.7-Zip -e --accept-source-agreements --accept-package-agreements
+                } else {
+                    $dst = "$env:TEMP\7z-setup.exe"
+                    (New-Object System.Net.WebClient).DownloadFile("https://www.7-zip.org/a/7z2407-x64.exe", $dst)
+                    Start-Process $dst -Wait
+                }
+                Write-Host "[+] 7-Zip installation triggered." -ForegroundColor Green
+            }
+            "2" {
+                Write-Host "[*] Installing VLC..." -ForegroundColor Yellow
+                if (Get-Command winget -ErrorAction SilentlyContinue) {
+                    winget install --id VideoLAN.VLC -e --accept-source-agreements --accept-package-agreements
+                } else {
+                    Start-Process "https://www.videolan.org/vlc/download-windows.html"
+                }
+                Write-Host "[+] VLC installation triggered." -ForegroundColor Green
+            }
+            "3" {
+                Write-Host "[*] Installing RustDesk..." -ForegroundColor Yellow
+                if (Get-Command winget -ErrorAction SilentlyContinue) {
+                    winget install --id RustDesk.RustDesk -e --accept-source-agreements --accept-package-agreements
+                } else {
+                    Start-Process "https://github.com/rustdesk/rustdesk/releases/latest"
+                }
+                Write-Host "[+] RustDesk installation triggered." -ForegroundColor Green
+            }
+            "4" {
+                Write-Host "[*] Installing AnyDesk..." -ForegroundColor Yellow
+                if (Get-Command winget -ErrorAction SilentlyContinue) {
+                    winget install --id AnyDesk.AnyDesk -e --accept-source-agreements --accept-package-agreements
+                } else {
+                    $dst = "$env:TEMP\AnyDeskSetup.exe"
+                    (New-Object System.Net.WebClient).DownloadFile("https://download.anydesk.com/AnyDesk.exe", $dst)
+                    Start-Process $dst -Wait
+                }
+                Write-Host "[+] AnyDesk installation triggered." -ForegroundColor Green
+            }
+            "5" {
+                Write-Host "[*] Launching Quick Assist..." -ForegroundColor Yellow
+                $qa = Get-Command quickassist -ErrorAction SilentlyContinue
+                if ($qa) { Start-Process "quickassist" }
+                else { Start-Process "ms-windows-store://pdp/?ProductId=9P7BP5VNWKX5" }
+                Write-Host "[+] Quick Assist opened." -ForegroundColor Green
+            }
+            "6" {
+                Write-Host "[*] Installing Brave Browser..." -ForegroundColor Yellow
+                if (Get-Command winget -ErrorAction SilentlyContinue) {
+                    winget install --id Brave.Brave -e --accept-source-agreements --accept-package-agreements
+                } else {
+                    $dst = "$env:TEMP\BraveSetup.exe"
+                    (New-Object System.Net.WebClient).DownloadFile("https://laptop-updates.brave.com/latest/winx64", $dst)
+                    Start-Process $dst -Wait
+                }
+                Write-Host "[+] Brave installation triggered." -ForegroundColor Green
+            }
+            "7" {
+                Write-Host "[*] Installing Firefox..." -ForegroundColor Yellow
+                if (Get-Command winget -ErrorAction SilentlyContinue) {
+                    winget install --id Mozilla.Firefox -e --accept-source-agreements --accept-package-agreements
+                } else {
+                    $dst = "$env:TEMP\FirefoxSetup.exe"
+                    (New-Object System.Net.WebClient).DownloadFile("https://download.mozilla.org/?product=firefox-latest&os=win64&lang=en-US", $dst)
+                    Start-Process $dst -Wait
+                }
+                Write-Host "[+] Firefox installation triggered." -ForegroundColor Green
+            }
+            "8" {
+                Write-Host "[*] Installing PDFgear..." -ForegroundColor Yellow
+                if (Get-Command winget -ErrorAction SilentlyContinue) {
+                    winget install --id PDFgear.PDFgear -e --accept-source-agreements --accept-package-agreements
+                } else {
+                    Start-Process "https://www.pdfgear.com/download/"
+                }
+                Write-Host "[+] PDFgear installation triggered." -ForegroundColor Green
+            }
+            "9" {
+                $url = "https://officecdn.microsoft.com/db/492350f6-3a01-4f97-b9c0-c7c6ddf67d60/media/en-us/ProPlus2021Retail.img"
+                $dst = "$env:TEMP\ProPlus2021Retail_EN.img"
+                Write-Host "[*] Starting Office 2021 English download..." -ForegroundColor Yellow
+                try {
+                    Start-BitsTransfer -Source $url -Destination $dst -ErrorAction Stop
+                    $mount = Mount-DiskImage -ImagePath $dst -PassThru
+                    $letter = ($mount | Get-Volume).DriveLetter
+                    Start-Process "$letter`:\setup.exe"
+                    Write-Host "[+] Office 2021 EN installer launched." -ForegroundColor Green
+                } catch {
+                    Write-Host "[-] Download failed: $_" -ForegroundColor Red
+                }
+            }
+            "10" {
+                $url = "https://officecdn.microsoft.com/db/492350f6-3a01-4f97-b9c0-c7c6ddf67d60/media/ar-sa/ProPlus2021Retail.img"
+                $dst = "$env:TEMP\ProPlus2021Retail_AR.img"
+                Write-Host "[*] Starting Office 2021 Arabic download..." -ForegroundColor Yellow
+                try {
+                    Start-BitsTransfer -Source $url -Destination $dst -ErrorAction Stop
+                    $mount = Mount-DiskImage -ImagePath $dst -PassThru
+                    $letter = ($mount | Get-Volume).DriveLetter
+                    Start-Process "$letter`:\setup.exe"
+                    Write-Host "[+] Office 2021 AR installer launched." -ForegroundColor Green
+                } catch {
+                    Write-Host "[-] Download failed: $_" -ForegroundColor Red
+                }
+            }
+        }
+        Wait-UserPrompt
+    }
+}
+
 function Start-ToolkitMenu {
     Set-ConsoleTheme
     
     while ($true) {
         Write-ToolkitHeader
         
-        # 2-column layout matching the user's uploaded image
         $menuItems = @(
-            @{ LeftKey = " 1"; LeftText = "System Info";              RightKey = "10"; RightText = "Reset TCP/IP" },
-            @{ LeftKey = " 2"; LeftText = "SFC Scan";                 RightKey = "11"; RightText = "Battery Report" },
-            @{ LeftKey = " 3"; LeftText = "SFC Verify Only";          RightKey = "12"; RightText = "Performance Report" },
-            @{ LeftKey = " 4"; LeftText = "DISM Scan Health";         RightKey = "13"; RightText = "WinRE Info" },
-            @{ LeftKey = " 5"; LeftText = "DISM Repair (RestoreH.)";  RightKey = "14"; RightText = "System Restore" },
-            @{ LeftKey = " 6"; LeftText = "Component Store Cleanup";  RightKey = "15"; RightText = "Memory Diagnostic" },
-            @{ LeftKey = " 7"; LeftText = "Drive Health (SMART)";     RightKey = "16"; RightText = "Advanced Startup" },
-            @{ LeftKey = " 8"; LeftText = "Flush DNS";                RightKey = "17"; RightText = "Check Windows Update" },
-            @{ LeftKey = " 9"; LeftText = "Reset Winsock";            RightKey = "18"; RightText = "Full Report (All Info)" },
-            @{ LeftKey = "19"; LeftText = "Disk Cleanup";             RightKey = "20"; RightText = "Event Log Errors (last 20)" }
+            @{ LeftKey = " 1"; LeftText = "System Info & Overview";     RightKey = "13"; RightText = "Reset TCP/IP Stack" },
+            @{ LeftKey = " 2"; LeftText = "SFC Scan & Repair";          RightKey = "14"; RightText = "Configure DNS (Google/Cloudflare/AdGuard)"; },
+            @{ LeftKey = " 3"; LeftText = "SFC Verify Only";             RightKey = "15"; RightText = "Internet Speed Test (Ookla)"; },
+            @{ LeftKey = " 4"; LeftText = "DISM Scan Health";            RightKey = "16"; RightText = "Battery Report"; },
+            @{ LeftKey = " 5"; LeftText = "DISM Repair (RestoreHealth)"; RightKey = "17"; RightText = "Performance Report"; },
+            @{ LeftKey = " 6"; LeftText = "Component Store Cleanup";     RightKey = "18"; RightText = "WinRE Info & Status"; },
+            @{ LeftKey = " 7"; LeftText = "Drive Health (SMART)";        RightKey = "19"; RightText = "System Restore"; },
+            @{ LeftKey = " 8"; LeftText = "Installed Drivers Audit";     RightKey = "20"; RightText = "Memory Diagnostic"; },
+            @{ LeftKey = " 9"; LeftText = "Running Services Triage";     RightKey = "21"; RightText = "Advanced Startup"; },
+            @{ LeftKey = "10"; LeftText = "Flush & Register DNS";        RightKey = "22"; RightText = "Check Windows Update"; },
+            @{ LeftKey = "11"; LeftText = "Reset Winsock Catalog";       RightKey = "23"; RightText = "Disk Cleanup & Purge"; },
+            @{ LeftKey = "12"; LeftText = "Active Port Map (Netstat)";   RightKey = "24"; RightText = "Event Log Errors (Last 20)"; }
         )
 
         foreach ($row in $menuItems) {
             $leftSide  = "[{0}] {1}" -f $row.LeftKey.Trim(), $row.LeftText
             $rightSide = "[{0}] {1}" -f $row.RightKey.Trim(), $row.RightText
-            Write-Host ("  {0,-38} {1}" -f $leftSide, $rightSide) -ForegroundColor Green
+            Write-Host ("  {0,-42} {1}" -f $leftSide, $rightSide) -ForegroundColor Green
         }
         
         Write-Host ""
+        Write-Host "  [S] Software Installers (7-Zip, VLC, AnyDesk, Chrome/Firefox, Office 2021, PDFgear)" -ForegroundColor Yellow
         Write-Host "  [G] Launch IT Support Toolkit GUI" -ForegroundColor Cyan
         Write-Host "  [Q] Exit" -ForegroundColor Red
         Write-Host ""
         Write-Host "--------------------------------------------------------------------------------" -ForegroundColor DarkGreen
-        Write-Host "Select [1-20 / G / Q]: " -NoNewline -ForegroundColor Green
+        Write-Host "Select [1-24 / S / G / Q]: " -NoNewline -ForegroundColor Green
         
         $choice = [Console]::ReadLine()
         if ($null -eq $choice) { break }
@@ -1545,31 +1758,47 @@ function Start-ToolkitMenu {
             "5"  { Invoke-DISMRestoreHealth }
             "6"  { Invoke-ComponentStoreCleanup }
             "7"  { Invoke-DriveHealth }
-            "8"  { Invoke-FlushDNS }
-            "9"  { Invoke-ResetWinsock }
-            "10" { Invoke-ResetTCPIP }
-            "11" { Invoke-BatteryReport }
-            "12" { Invoke-PerformanceReport }
-            "13" { Invoke-WinREInfo }
-            "14" { Invoke-SystemRestore }
-            "15" { Invoke-MemoryDiagnostic }
-            "16" { Invoke-AdvancedStartup }
-            "17" { Invoke-CheckWindowsUpdate }
-            "18" { Invoke-FullReport }
-            "19" { Invoke-DiskCleanup }
-            "20" { Invoke-EventLogErrors }
+            "8"  { 
+                Show-ActionHeader "Installed Drivers Audit"
+                pnputil /enum-drivers | Select-Object -First 40
+                Wait-UserPrompt
+            }
+            "9"  { 
+                Show-ActionHeader "Running Services Triage"
+                Get-Service | Where-Object { $_.StartType -eq 'Automatic' -and $_.Status -ne 'Running' } | Select-Object Name, DisplayName, Status | Format-Table | Out-String
+                Wait-UserPrompt
+            }
+            "10" { Invoke-FlushDNS }
+            "11" { Invoke-ResetWinsock }
+            "12" { 
+                Show-ActionHeader "Active Port Map"
+                Get-NetTCPConnection -State Listen | Select-Object LocalAddress, LocalPort, OwningProcess | Sort-Object LocalPort | Format-Table | Out-String
+                Wait-UserPrompt
+            }
+            "13" { Invoke-ResetTCPIP }
+            "14" { Invoke-ConfigureDNSMenu }
+            "15" { Invoke-SpeedtestCLI }
+            "16" { Invoke-BatteryReport }
+            "17" { Invoke-PerformanceReport }
+            "18" { Invoke-WinREInfo }
+            "19" { Invoke-SystemRestore }
+            "20" { Invoke-MemoryDiagnostic }
+            "21" { Invoke-AdvancedStartup }
+            "22" { Invoke-CheckWindowsUpdate }
+            "23" { Invoke-DiskCleanup }
+            "24" { Invoke-EventLogErrors }
+            "S"  { Invoke-SoftwareInstallerMenu }
             "G"  { Invoke-ModernGUI }
             "Q"  { 
-                Write-Host "Exiting IT Administration Repair Toolkit. Goodbye!" -ForegroundColor Cyan
+                Write-Host "Exiting IT Support Toolkit. Goodbye!" -ForegroundColor Cyan
                 return 
             }
             default {
-                Write-Host "Invalid option. Please choose between 1-20, G, or Q." -ForegroundColor Yellow
+                Write-Host "Invalid option. Please choose between 1-24, S, G, or Q." -ForegroundColor Yellow
                 Start-Sleep -Milliseconds 1200
             }
         }
     }
 }
-
 # Entrypoint
 Start-ToolkitMenu
