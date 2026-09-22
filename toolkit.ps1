@@ -1498,9 +1498,301 @@ $rows
 }
 
 # -------------------------------------------------------------------------
-# 5. MAIN MENU LOOP (Terminal Mode)
 # -------------------------------------------------------------------------
-# Helper functions for new terminal sub-menu actions
+# 5. MAIN MENU LOOP (Terminal Mode - Section-Based Navigation)
+# -------------------------------------------------------------------------
+
+function Invoke-SystemAuditCategoryMenu {
+    while ($true) {
+        Show-ActionHeader "System Audit & Diagnostics"
+        Write-Host "Select Tool:" -ForegroundColor Yellow
+        Write-Host " [1] System Overview (CPU, RAM, OS Build, Uptime)"
+        Write-Host " [2] Battery Health Audit (powercfg report)"
+        Write-Host " [3] Drive SMART Health & Storage Volumes"
+        Write-Host " [4] Live Performance Audit (CPU load & PerfMon)"
+        Write-Host " [5] Event Log Triage (Last 20 Critical/Errors)"
+        Write-Host " [6] Installed Hotfixes Audit"
+        Write-Host " [7] GPU & Display Specs Audit"
+        Write-Host " [8] Installed Drivers Audit (pnputil)"
+        Write-Host " [9] Running Services Triage (Stopped Auto Services)"
+        Write-Host " [B] Back to Main Menu"
+        Write-Host ""
+        Write-Host "Select option [1-9 / B]: " -NoNewline -ForegroundColor Cyan
+        $choice = [Console]::ReadLine()
+        if ($null -eq $choice -or $choice.ToUpper() -eq "B") { break }
+
+        switch ($choice) {
+            "1" { Invoke-SystemInfo }
+            "2" { Invoke-BatteryReport }
+            "3" { Invoke-DriveHealth }
+            "4" { Invoke-PerformanceReport }
+            "5" { Invoke-EventLogErrors }
+            "6" { 
+                Show-ActionHeader "Installed Hotfixes Audit"
+                Get-HotFix | Select-Object HotFixID, Description, InstalledOn | Sort-Object InstalledOn -Descending | Format-Table | Out-String
+                Wait-UserPrompt
+            }
+            "7" { 
+                Show-ActionHeader "GPU & Display Specs Audit"
+                Get-CimInstance Win32_VideoController | Select-Object Name, DriverVersion, VideoModeDescription, @{N="VRAM(MB)";E={[math]::Round($_.AdapterRAM/1MB,0)}} | Format-Table | Out-String
+                Get-CimInstance Win32_DesktopMonitor | Select-Object Name, ScreenWidth, ScreenHeight | Format-Table | Out-String
+                Wait-UserPrompt
+            }
+            "8" { 
+                Show-ActionHeader "Installed Drivers Audit"
+                pnputil /enum-drivers | Select-Object -First 40
+                Wait-UserPrompt
+            }
+            "9" { 
+                Show-ActionHeader "Running Services Triage"
+                Get-Service | Where-Object { $_.StartType -eq 'Automatic' -and $_.Status -ne 'Running' } | Select-Object Name, DisplayName, Status | Format-Table | Out-String
+                Wait-UserPrompt
+            }
+        }
+    }
+}
+
+function Invoke-KernelCategoryMenu {
+    while ($true) {
+        Show-ActionHeader "Kernel & DISM Repairs"
+        Write-Host "Select Repair Tool:" -ForegroundColor Yellow
+        Write-Host " [1] SFC Full Scannow (System Binary Repair)"
+        Write-Host " [2] SFC Verify Only (Integrity Audit)"
+        Write-Host " [3] DISM Scan Health"
+        Write-Host " [4] DISM Restore Health (Image Repair)"
+        Write-Host " [5] Component Store Cleanup (WinSxS Prune)"
+        Write-Host " [6] Rebuild Performance Counters (Lodctr)"
+        Write-Host " [7] Chkdsk Scan (Read-Only Volume Check)"
+        Write-Host " [8] Rebuild Icon & Font Caches"
+        Write-Host " [B] Back to Main Menu"
+        Write-Host ""
+        Write-Host "Select option [1-8 / B]: " -NoNewline -ForegroundColor Cyan
+        $choice = [Console]::ReadLine()
+        if ($null -eq $choice -or $choice.ToUpper() -eq "B") { break }
+
+        switch ($choice) {
+            "1" { Invoke-SFCScan }
+            "2" { Invoke-SFCVerifyOnly }
+            "3" { Invoke-DISMScanHealth }
+            "4" { Invoke-DISMRestoreHealth }
+            "5" { Invoke-ComponentStoreCleanup }
+            "6" { 
+                Show-ActionHeader "Rebuild Performance Counters"
+                lodctr /R
+                Write-Host "[+] Performance counters rebuilt." -ForegroundColor Green
+                Wait-UserPrompt
+            }
+            "7" { 
+                Show-ActionHeader "Chkdsk Scan (Read-Only)"
+                chkdsk C: /scan
+                Wait-UserPrompt
+            }
+            "8" { 
+                Show-ActionHeader "Rebuild Icon & Font Cache"
+                Stop-Process -Name explorer -Force -ErrorAction SilentlyContinue
+                Remove-Item "$env:LOCALAPPDATA\IconCache.db" -Force -ErrorAction SilentlyContinue
+                Remove-Item "$env:LOCALAPPDATA\Microsoft\Windows\Explorer\iconcache*" -Force -ErrorAction SilentlyContinue
+                Start-Process explorer.exe
+                Write-Host "[+] Explorer icon cache cleared and restarted." -ForegroundColor Green
+                Wait-UserPrompt
+            }
+        }
+    }
+}
+
+function Invoke-NetworkCategoryMenu {
+    while ($true) {
+        Show-ActionHeader "Network Stack & Connectivity Tools"
+        Write-Host "Select Tool:" -ForegroundColor Yellow
+        Write-Host " [1] Speedtest (Ookla CLI / Fallback)"
+        Write-Host " [2] Configure DNS Provider (Google / Cloudflare / AdGuard / DHCP)"
+        Write-Host " [3] Flush & Register DNS Resolver"
+        Write-Host " [4] Reset Winsock Catalog"
+        Write-Host " [5] Reset TCP/IP Stack (IPv4 & IPv6)"
+        Write-Host " [6] Renew DHCP Leases"
+        Write-Host " [7] Full IP Configuration (ipconfig /all)"
+        Write-Host " [8] Active Port & Socket Map (Netstat)"
+        Write-Host " [9] Restart Physical Network Adapters"
+        Write-Host " [10] Ping Test (Gateway & Public DNS)"
+        Write-Host " [11] Traceroute Hops"
+        Write-Host " [B] Back to Main Menu"
+        Write-Host ""
+        Write-Host "Select option [1-11 / B]: " -NoNewline -ForegroundColor Cyan
+        $choice = [Console]::ReadLine()
+        if ($null -eq $choice -or $choice.ToUpper() -eq "B") { break }
+
+        switch ($choice) {
+            "1"  { Invoke-SpeedtestCLI }
+            "2"  { Invoke-ConfigureDNSMenu }
+            "3"  { Invoke-FlushDNS }
+            "4"  { Invoke-ResetWinsock }
+            "5"  { Invoke-ResetTCPIP }
+            "6"  { 
+                Show-ActionHeader "Renew DHCP Lease"
+                ipconfig /release
+                ipconfig /renew
+                Write-Host "[+] DHCP lease renewed." -ForegroundColor Green
+                Wait-UserPrompt
+            }
+            "7"  { 
+                Show-ActionHeader "Full IP Configuration"
+                ipconfig /all
+                Wait-UserPrompt
+            }
+            "8"  { 
+                Show-ActionHeader "Active Listening Ports"
+                Get-NetTCPConnection -State Listen | Select-Object LocalAddress, LocalPort, OwningProcess | Sort-Object LocalPort | Format-Table | Out-String
+                Wait-UserPrompt
+            }
+            "9"  { 
+                Show-ActionHeader "Restart Network Adapters"
+                Get-NetAdapter | Where-Object { $_.PhysicalMediaType -ne 'Unspecified' } | Restart-NetAdapter
+                Write-Host "[+] Adapters restarted." -ForegroundColor Green
+                Wait-UserPrompt
+            }
+            "10" { 
+                Show-ActionHeader "Connectivity Ping Test"
+                foreach ($h in @("1.1.1.1","8.8.8.8","192.168.1.1")) {
+                    $r = Test-Connection -ComputerName $h -Count 2 -ErrorAction SilentlyContinue
+                    if ($r) { Write-Host "OK    $h  avg $([math]::Round(($r | Measure-Object ResponseTime -Average).Average,0)) ms" -ForegroundColor Green }
+                    else     { Write-Host "FAIL  $h  unreachable" -ForegroundColor Red }
+                }
+                Wait-UserPrompt
+            }
+            "11" { 
+                Show-ActionHeader "Traceroute Hops"
+                tracert -d -h 20 8.8.8.8
+                Wait-UserPrompt
+            }
+        }
+    }
+}
+
+function Invoke-SecurityCategoryMenu {
+    while ($true) {
+        Show-ActionHeader "Security & Access Control"
+        Write-Host "Select Tool:" -ForegroundColor Yellow
+        Write-Host " [1] Windows Defender Quick Scan"
+        Write-Host " [2] Update Antivirus Definitions"
+        Write-Host " [3] Real-Time Defender Status"
+        Write-Host " [4] Firewall Profile Status"
+        Write-Host " [5] Audit Local Administrators Group"
+        Write-Host " [6] Startup Programs Inspection"
+        Write-Host " [7] BitLocker Drive Encryption Status"
+        Write-Host " [8] Audit Shared Folders (SMB Shares)"
+        Write-Host " [B] Back to Main Menu"
+        Write-Host ""
+        Write-Host "Select option [1-8 / B]: " -NoNewline -ForegroundColor Cyan
+        $choice = [Console]::ReadLine()
+        if ($null -eq $choice -or $choice.ToUpper() -eq "B") { break }
+
+        switch ($choice) {
+            "1" { 
+                Show-ActionHeader "Defender Quick Scan"
+                Start-MpScan -ScanType QuickScan
+                Write-Host "[+] Quick scan complete." -ForegroundColor Green
+                Wait-UserPrompt
+            }
+            "2" { 
+                Show-ActionHeader "Update Defender Definitions"
+                Update-MpSignature
+                Write-Host "[+] Definitions updated." -ForegroundColor Green
+                Wait-UserPrompt
+            }
+            "3" { 
+                Show-ActionHeader "Defender Real-Time Status"
+                Get-MpComputerStatus -ErrorAction SilentlyContinue | Select-Object RealTimeProtectionEnabled, AntivirusEnabled, AntivirusSignatureVersion, QuickScanEndTime, FullScanEndTime | Format-List | Out-String
+                Wait-UserPrompt
+            }
+            "4" { 
+                Show-ActionHeader "Firewall Profile Status"
+                Get-NetFirewallProfile | Select-Object Name, Enabled, DefaultInboundAction, DefaultOutboundAction | Format-Table | Out-String
+                Wait-UserPrompt
+            }
+            "5" { 
+                Show-ActionHeader "Local Administrators Audit"
+                Get-LocalGroupMember -Group "Administrators" | Select-Object Name, PrincipalSource, ObjectClass | Format-Table | Out-String
+                Wait-UserPrompt
+            }
+            "6" { 
+                Show-ActionHeader "Startup Inspection"
+                Get-CimInstance Win32_StartupCommand | Select-Object Name, Command, Location, User | Format-Table | Out-String
+                Wait-UserPrompt
+            }
+            "7" { 
+                Show-ActionHeader "BitLocker Volume Status"
+                manage-bde -status
+                Wait-UserPrompt
+            }
+            "8" { 
+                Show-ActionHeader "Shared Folders Audit"
+                Get-SmbShare | Select-Object Name, Path, Description, ShareState | Format-Table | Out-String
+                Wait-UserPrompt
+            }
+        }
+    }
+}
+
+function Invoke-MaintenanceCategoryMenu {
+    while ($true) {
+        Show-ActionHeader "Maintenance & Recovery"
+        Write-Host "Select Tool:" -ForegroundColor Yellow
+        Write-Host " [1] Deep Storage Purge (Temp, Dumps, Recycle Bin)"
+        Write-Host " [2] Open Standard Disk Cleanup (Cleanmgr)"
+        Write-Host " [3] Reset Windows Update Services & Cache"
+        Write-Host " [4] Optimize & Defrag Drives (TRIM)"
+        Write-Host " [5] WinRE Recovery Partition Info"
+        Write-Host " [6] Create System Restore Point"
+        Write-Host " [7] Schedule Memory Diagnostic (mdsched)"
+        Write-Host " [8] Advanced Startup Reboot (UEFI / WinRE)"
+        Write-Host " [9] Check Windows Update"
+        Write-Host " [10] Clear All Windows Event Logs"
+        Write-Host " [B] Back to Main Menu"
+        Write-Host ""
+        Write-Host "Select option [1-10 / B]: " -NoNewline -ForegroundColor Cyan
+        $choice = [Console]::ReadLine()
+        if ($null -eq $choice -or $choice.ToUpper() -eq "B") { break }
+
+        switch ($choice) {
+            "1"  { Invoke-DiskCleanup }
+            "2"  { Start-Process "cleanmgr.exe" }
+            "3"  { 
+                Show-ActionHeader "Reset Windows Update"
+                Stop-Service -Name wuauserv, cryptSvc, bits, msiserver -Force -ErrorAction SilentlyContinue
+                $ts = Get-Date -Format "yyyyMMddHHmmss"
+                if (Test-Path "$env:windir\SoftwareDistribution") {
+                    Rename-Item "$env:windir\SoftwareDistribution" "SoftwareDistribution.old.$ts" -ErrorAction SilentlyContinue
+                }
+                Start-Service -Name cryptSvc, bits, wuauserv -ErrorAction SilentlyContinue
+                Write-Host "[+] Windows Update services restarted and cache reset." -ForegroundColor Green
+                Wait-UserPrompt
+            }
+            "4"  { 
+                Show-ActionHeader "Optimize Drives"
+                Get-Volume | Where-Object { $_.DriveType -eq 'Fixed' -and $_.DriveLetter } | ForEach-Object {
+                    Write-Host "[*] Optimizing $($_.DriveLetter): $($_.FileSystemLabel)..." -ForegroundColor Yellow
+                    Optimize-Volume -DriveLetter $_.DriveLetter -Verbose 2>&1 | Out-String
+                }
+                Wait-UserPrompt
+            }
+            "5"  { Invoke-WinREInfo }
+            "6"  { Invoke-SystemRestore }
+            "7"  { Invoke-MemoryDiagnostic }
+            "8"  { Invoke-AdvancedStartup }
+            "9"  { Invoke-CheckWindowsUpdate }
+            "10" { 
+                Show-ActionHeader "Clear All Event Logs"
+                if (Confirm-Action "Are you sure you want to clear ALL Windows event logs?") {
+                    Get-WinEvent -ListLog * -ErrorAction SilentlyContinue | Where-Object RecordCount -gt 0 | ForEach-Object {
+                        try { [System.Diagnostics.Eventing.Reader.EventLogSession]::GlobalSession.ClearLog($_.LogName) } catch {}
+                    }
+                    Write-Host "[+] All event logs cleared." -ForegroundColor Green
+                }
+                Wait-UserPrompt
+            }
+        }
+    }
+}
 
 function Invoke-SpeedtestCLI {
     Show-ActionHeader "Internet Speed Test (Ookla)"
@@ -1717,88 +2009,45 @@ function Start-ToolkitMenu {
     while ($true) {
         Write-ToolkitHeader
         
-        $menuItems = @(
-            @{ LeftKey = " 1"; LeftText = "System Info & Overview";     RightKey = "13"; RightText = "Reset TCP/IP Stack" },
-            @{ LeftKey = " 2"; LeftText = "SFC Scan & Repair";          RightKey = "14"; RightText = "Configure DNS (Google/Cloudflare/AdGuard)"; },
-            @{ LeftKey = " 3"; LeftText = "SFC Verify Only";             RightKey = "15"; RightText = "Internet Speed Test (Ookla)"; },
-            @{ LeftKey = " 4"; LeftText = "DISM Scan Health";            RightKey = "16"; RightText = "Battery Report"; },
-            @{ LeftKey = " 5"; LeftText = "DISM Repair (RestoreHealth)"; RightKey = "17"; RightText = "Performance Report"; },
-            @{ LeftKey = " 6"; LeftText = "Component Store Cleanup";     RightKey = "18"; RightText = "WinRE Info & Status"; },
-            @{ LeftKey = " 7"; LeftText = "Drive Health (SMART)";        RightKey = "19"; RightText = "System Restore"; },
-            @{ LeftKey = " 8"; LeftText = "Installed Drivers Audit";     RightKey = "20"; RightText = "Memory Diagnostic"; },
-            @{ LeftKey = " 9"; LeftText = "Running Services Triage";     RightKey = "21"; RightText = "Advanced Startup"; },
-            @{ LeftKey = "10"; LeftText = "Flush & Register DNS";        RightKey = "22"; RightText = "Check Windows Update"; },
-            @{ LeftKey = "11"; LeftText = "Reset Winsock Catalog";       RightKey = "23"; RightText = "Disk Cleanup & Purge"; },
-            @{ LeftKey = "12"; LeftText = "Active Port Map (Netstat)";   RightKey = "24"; RightText = "Event Log Errors (Last 20)"; }
-        )
-
-        foreach ($row in $menuItems) {
-            $leftSide  = "[{0}] {1}" -f $row.LeftKey.Trim(), $row.LeftText
-            $rightSide = "[{0}] {1}" -f $row.RightKey.Trim(), $row.RightText
-            Write-Host ("  {0,-42} {1}" -f $leftSide, $rightSide) -ForegroundColor Green
-        }
-        
+        Write-Host "  CATEGORIES / SECTIONS:" -ForegroundColor Yellow
         Write-Host ""
-        Write-Host "  [S] Software Installers (7-Zip, VLC, AnyDesk, Chrome/Firefox, Office 2021, PDFgear)" -ForegroundColor Yellow
+        Write-Host "  [1] System Audit & Diagnostics  (CPU, RAM, Uptime, Battery, Drives, Logs, Drivers)" -ForegroundColor Green
+        Write-Host "  [2] Kernel & DISM Repairs      (SFC Scan, DISM Repair, WinSxS Cleanup, lodctr)" -ForegroundColor Green
+        Write-Host "  [3] Network Engine & Tools      (Speedtest, DNS Provider Config, Winsock, TCP/IP)" -ForegroundColor Green
+        Write-Host "  [4] Security & Access           (Defender Scan, Real-Time Status, Firewall, Admins)" -ForegroundColor Green
+        Write-Host "  [5] Maintenance & Recovery      (Storage Purge, Defrag, WinRE, Restore Point, WU)" -ForegroundColor Green
+        Write-Host "  [6] Software Installers         (7-Zip, VLC, AnyDesk, Chrome/Firefox, Office 2021)" -ForegroundColor Green
+        Write-Host ""
+        Write-Host "  --------------------------------------------------------------------------------" -ForegroundColor DarkGreen
         Write-Host "  [G] Launch IT Support Toolkit GUI" -ForegroundColor Cyan
         Write-Host "  [Q] Exit" -ForegroundColor Red
         Write-Host ""
         Write-Host "--------------------------------------------------------------------------------" -ForegroundColor DarkGreen
-        Write-Host "Select [1-24 / S / G / Q]: " -NoNewline -ForegroundColor Green
+        Write-Host "Select Section [1-6 / G / Q]: " -NoNewline -ForegroundColor Green
         
         $choice = [Console]::ReadLine()
         if ($null -eq $choice) { break }
         $choice = $choice.Trim()
 
         switch ($choice.ToUpper()) {
-            "1"  { Invoke-SystemInfo }
-            "2"  { Invoke-SFCScan }
-            "3"  { Invoke-SFCVerifyOnly }
-            "4"  { Invoke-DISMScanHealth }
-            "5"  { Invoke-DISMRestoreHealth }
-            "6"  { Invoke-ComponentStoreCleanup }
-            "7"  { Invoke-DriveHealth }
-            "8"  { 
-                Show-ActionHeader "Installed Drivers Audit"
-                pnputil /enum-drivers | Select-Object -First 40
-                Wait-UserPrompt
-            }
-            "9"  { 
-                Show-ActionHeader "Running Services Triage"
-                Get-Service | Where-Object { $_.StartType -eq 'Automatic' -and $_.Status -ne 'Running' } | Select-Object Name, DisplayName, Status | Format-Table | Out-String
-                Wait-UserPrompt
-            }
-            "10" { Invoke-FlushDNS }
-            "11" { Invoke-ResetWinsock }
-            "12" { 
-                Show-ActionHeader "Active Port Map"
-                Get-NetTCPConnection -State Listen | Select-Object LocalAddress, LocalPort, OwningProcess | Sort-Object LocalPort | Format-Table | Out-String
-                Wait-UserPrompt
-            }
-            "13" { Invoke-ResetTCPIP }
-            "14" { Invoke-ConfigureDNSMenu }
-            "15" { Invoke-SpeedtestCLI }
-            "16" { Invoke-BatteryReport }
-            "17" { Invoke-PerformanceReport }
-            "18" { Invoke-WinREInfo }
-            "19" { Invoke-SystemRestore }
-            "20" { Invoke-MemoryDiagnostic }
-            "21" { Invoke-AdvancedStartup }
-            "22" { Invoke-CheckWindowsUpdate }
-            "23" { Invoke-DiskCleanup }
-            "24" { Invoke-EventLogErrors }
-            "S"  { Invoke-SoftwareInstallerMenu }
+            "1"  { Invoke-SystemAuditCategoryMenu }
+            "2"  { Invoke-KernelCategoryMenu }
+            "3"  { Invoke-NetworkCategoryMenu }
+            "4"  { Invoke-SecurityCategoryMenu }
+            "5"  { Invoke-MaintenanceCategoryMenu }
+            "6"  { Invoke-SoftwareInstallerMenu }
             "G"  { Invoke-ModernGUI }
             "Q"  { 
                 Write-Host "Exiting IT Support Toolkit. Goodbye!" -ForegroundColor Cyan
                 return 
             }
             default {
-                Write-Host "Invalid option. Please choose between 1-24, S, G, or Q." -ForegroundColor Yellow
+                Write-Host "Invalid option. Please choose between 1-6, G, or Q." -ForegroundColor Yellow
                 Start-Sleep -Milliseconds 1200
             }
         }
     }
 }
+
 # Entrypoint
 Start-ToolkitMenu
