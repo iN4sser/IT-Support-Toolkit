@@ -1002,34 +1002,79 @@ $rows
 
     # Network
     # Network Tools & DNS Config
-    Add-ToolCard "Network" "Speedtest (Ookla)" "Run Speedtest.net CLI test for latency, download & upload" "SPEED" {
-        Write-Output "Running Internet Speed Test..."
-        if (Get-Command winget -ErrorAction SilentlyContinue) {
+    Add-ToolCard "Network" "Speedtest (Network Test)" "In-app latency & multi-node bandwidth speed test" "SPEED" {
+        Write-Output "=== INTERNET SPEED & LATENCY TEST ==="
+        $cli = Get-Command speedtest -ErrorAction SilentlyContinue
+        if (-not $cli -and (Get-Command winget -ErrorAction SilentlyContinue)) {
+            Write-Output "[*] Attempting to fetch Ookla Speedtest CLI..."
+            winget install --id Ookla.Speedtest -e --accept-source-agreements --accept-package-agreements | Out-Null
             $cli = Get-Command speedtest -ErrorAction SilentlyContinue
-            if (-not $cli) {
-                Write-Output "Installing Ookla Speedtest CLI via Winget..."
-                winget install --id Ookla.Speedtest -e --accept-source-agreements --accept-package-agreements | Out-Null
-            }
         }
-        $cliPath = Get-Command speedtest -ErrorAction SilentlyContinue
-        if ($cliPath) {
+
+        if ($cli) {
             & speedtest --accept-license --accept-gdpr
         } else {
-            Write-Output "Fast.com / Ookla fallback: Testing download speed using web stream..."
-            $testUrl = "https://speed.hetzner.de/100MB.bin"
-            $sw = [System.Diagnostics.Stopwatch]::StartNew()
-            $wc = New-Object System.Net.WebClient
-            try {
-                $data = $wc.DownloadData($testUrl)
-                $sw.Stop()
-                $mb = $data.Length / 1MB
-                $sec = $sw.Elapsed.TotalSeconds
-                $mbps = [math]::Round(($mb * 8) / $sec, 2)
-                Write-Output "Download Speed: $mbps Mbps (Downloaded $($mb)MB in $([math]::Round($sec,2))s)"
-            } catch {
-                Write-Output "Speed test fallback failed. Opening speedtest.net in browser..."
-                Start-Process "https://www.speedtest.net"
+            Write-Output "[*] Running Native Multi-Node Speed Test (In-App)..."
+            
+            # Ping / Latency check
+            Write-Output "`r`n--- 1. Latency & Jitter Check ---"
+            foreach ($target in @("1.1.1.1", "8.8.8.8", "9.9.9.9")) {
+                $ping = Test-Connection -ComputerName $target -Count 4 -ErrorAction SilentlyContinue
+                if ($ping) {
+                    $avgMs = [math]::Round(($ping | Measure-Object ResponseTime -Average).Average, 1)
+                    Write-Output "  Node $target  -> Ping: $avgMs ms"
+                }
             }
+
+            # Download Speed Test
+            Write-Output "`r`n--- 2. Download Speed Test ---"
+            $nodes = @(
+                @{ Name = "Cloudflare CDN"; Url = "https://speed.cloudflare.com/__down?bytes=25000000" },
+                @{ Name = "Hetzner Node";    Url = "https://speed.hetzner.de/100MB.bin" }
+            )
+            
+            foreach ($n in $nodes) {
+                Write-Output "  Testing download from $($n.Name)..."
+                try {
+                    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+                    $wc = New-Object System.Net.WebClient
+                    $data = $wc.DownloadData($n.Url)
+                    $sw.Stop()
+                    
+                    $bytes = $data.Length
+                    $sec   = $sw.Elapsed.TotalSeconds
+                    if ($sec -gt 0) {
+                        $mbps = [math]::Round(($bytes * 8 / 1MB) / $sec, 2)
+                        $mb   = [math]::Round($bytes / 1MB, 1)
+                        Write-Output "  [+] $($n.Name): $mbps Mbps ($mb MB in $([math]::Round($sec,2))s)"
+                    }
+                    break
+                } catch {
+                    Write-Output "  [-] $($n.Name) failed: $_"
+                }
+            }
+
+            # Upload Speed Test (Native HTTP POST)
+            Write-Output "`r`n--- 3. Upload Speed Test ---"
+            try {
+                Write-Output "  Testing upload to Cloudflare CDN..."
+                $uploadBytes = New-Object byte[] (5 * 1024 * 1024) # 5MB buffer
+                (New-Object System.Random).NextBytes($uploadBytes)
+                
+                $sw = [System.Diagnostics.Stopwatch]::StartNew()
+                $wc = New-Object System.Net.WebClient
+                $res = $wc.UploadData("https://speed.cloudflare.com/__up", "POST", $uploadBytes)
+                $sw.Stop()
+                
+                $sec = $sw.Elapsed.TotalSeconds
+                if ($sec -gt 0) {
+                    $upMbps = [math]::Round((5 * 8) / $sec, 2)
+                    Write-Output "  [+] Upload Speed: $upMbps Mbps (5MB uploaded in $([math]::Round($sec,2))s)"
+                }
+            } catch {
+                Write-Output "  [-] Upload test unavailable: $_"
+            }
+            Write-Output "`r`nSpeed test finished."
         }
     }
 
@@ -1795,33 +1840,75 @@ function Invoke-MaintenanceCategoryMenu {
 }
 
 function Invoke-SpeedtestCLI {
-    Show-ActionHeader "Internet Speed Test (Ookla)"
+    Show-ActionHeader "Internet Speed Test"
     Write-Host "[*] Running Internet Speed Test..." -ForegroundColor Yellow
-    if (Get-Command winget -ErrorAction SilentlyContinue) {
+    $cli = Get-Command speedtest -ErrorAction SilentlyContinue
+    if (-not $cli -and (Get-Command winget -ErrorAction SilentlyContinue)) {
+        Write-Host "[*] Attempting to fetch Ookla Speedtest CLI via Winget..." -ForegroundColor Cyan
+        winget install --id Ookla.Speedtest -e --accept-source-agreements --accept-package-agreements | Out-Null
         $cli = Get-Command speedtest -ErrorAction SilentlyContinue
-        if (-not $cli) {
-            Write-Host "[*] Installing Ookla Speedtest CLI via Winget..." -ForegroundColor Cyan
-            winget install --id Ookla.Speedtest -e --accept-source-agreements --accept-package-agreements | Out-Null
-        }
     }
-    $cliPath = Get-Command speedtest -ErrorAction SilentlyContinue
-    if ($cliPath) {
+
+    if ($cli) {
         & speedtest --accept-license --accept-gdpr
     } else {
-        Write-Host "[*] Testing download speed via web stream fallback..." -ForegroundColor Yellow
-        $testUrl = "https://speed.hetzner.de/100MB.bin"
-        $sw = [System.Diagnostics.Stopwatch]::StartNew()
-        $wc = New-Object System.Net.WebClient
+        Write-Host ""
+        Write-Host "--- 1. Latency & Jitter Check ---" -ForegroundColor Cyan
+        foreach ($target in @("1.1.1.1", "8.8.8.8", "9.9.9.9")) {
+            $ping = Test-Connection -ComputerName $target -Count 4 -ErrorAction SilentlyContinue
+            if ($ping) {
+                $avgMs = [math]::Round(($ping | Measure-Object ResponseTime -Average).Average, 1)
+                Write-Host "  Node $target  -> Ping: $avgMs ms" -ForegroundColor Green
+            }
+        }
+
+        Write-Host ""
+        Write-Host "--- 2. Download Speed Test ---" -ForegroundColor Cyan
+        $nodes = @(
+            @{ Name = "Cloudflare CDN"; Url = "https://speed.cloudflare.com/__down?bytes=25000000" },
+            @{ Name = "Hetzner Node";    Url = "https://speed.hetzner.de/100MB.bin" }
+        )
+        
+        foreach ($n in $nodes) {
+            Write-Host "  Testing download from $($n.Name)..." -ForegroundColor Yellow
+            try {
+                $sw = [System.Diagnostics.Stopwatch]::StartNew()
+                $wc = New-Object System.Net.WebClient
+                $data = $wc.DownloadData($n.Url)
+                $sw.Stop()
+                
+                $bytes = $data.Length
+                $sec   = $sw.Elapsed.TotalSeconds
+                if ($sec -gt 0) {
+                    $mbps = [math]::Round(($bytes * 8 / 1MB) / $sec, 2)
+                    $mb   = [math]::Round($bytes / 1MB, 1)
+                    Write-Host "  [+] $($n.Name): $mbps Mbps ($mb MB in $([math]::Round($sec,2))s)" -ForegroundColor Green
+                }
+                break
+            } catch {
+                Write-Host "  [-] $($n.Name) failed: $_" -ForegroundColor Red
+            }
+        }
+
+        Write-Host ""
+        Write-Host "--- 3. Upload Speed Test ---" -ForegroundColor Cyan
         try {
-            $data = $wc.DownloadData($testUrl)
+            Write-Host "  Testing upload to Cloudflare CDN..." -ForegroundColor Yellow
+            $uploadBytes = New-Object byte[] (5 * 1024 * 1024)
+            (New-Object System.Random).NextBytes($uploadBytes)
+            
+            $sw = [System.Diagnostics.Stopwatch]::StartNew()
+            $wc = New-Object System.Net.WebClient
+            $res = $wc.UploadData("https://speed.cloudflare.com/__up", "POST", $uploadBytes)
             $sw.Stop()
-            $mb = $data.Length / 1MB
+            
             $sec = $sw.Elapsed.TotalSeconds
-            $mbps = [math]::Round(($mb * 8) / $sec, 2)
-            Write-Host "[+] Download Speed: $mbps Mbps ($($mb)MB downloaded in $([math]::Round($sec,2))s)" -ForegroundColor Green
+            if ($sec -gt 0) {
+                $upMbps = [math]::Round((5 * 8) / $sec, 2)
+                Write-Host "  [+] Upload Speed: $upMbps Mbps (5MB uploaded in $([math]::Round($sec,2))s)" -ForegroundColor Green
+            }
         } catch {
-            Write-Host "[-] Speed test fallback failed. Opening speedtest.net in browser..." -ForegroundColor Red
-            Start-Process "https://www.speedtest.net"
+            Write-Host "  [-] Upload test failed: $_" -ForegroundColor Red
         }
     }
     Wait-UserPrompt
