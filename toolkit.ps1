@@ -38,7 +38,7 @@ if (-not (Test-IsAdministrator)) {
 # -------------------------------------------------------------------------
 function Set-ConsoleTheme {
     try {
-        $host.UI.RawUI.WindowTitle = "IT Administration Repair Toolkit"
+        $host.UI.RawUI.WindowTitle = "IT Support Toolkit"
         [Console]::ForegroundColor = [ConsoleColor]::Green
     }
     catch {
@@ -49,7 +49,7 @@ function Set-ConsoleTheme {
 function Write-ToolkitHeader {
     Clear-Host
     Write-Host "================================================================================" -ForegroundColor DarkGreen
-    Write-Host "                        IT ADMINISTRATION REPAIR TOOLKIT                        " -ForegroundColor Green
+    Write-Host "                              IT SUPPORT TOOLKIT                                " -ForegroundColor Green
     Write-Host "================================================================================" -ForegroundColor DarkGreen
     Write-Host ""
 }
@@ -1527,7 +1527,7 @@ function Start-ToolkitMenu {
         }
         
         Write-Host ""
-        Write-Host "  [G] APEX Command Center GUI (32 Tools)" -ForegroundColor Cyan
+        Write-Host "  [G] Launch IT Support Toolkit GUI" -ForegroundColor Cyan
         Write-Host "  [Q] Exit" -ForegroundColor Red
         Write-Host ""
         Write-Host "--------------------------------------------------------------------------------" -ForegroundColor DarkGreen
