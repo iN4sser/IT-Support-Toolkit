@@ -11,14 +11,8 @@ Runs directly from PowerShell via a single command or locally on Windows 10, Win
 Launch directly in Windows PowerShell (Admin recommended, or allow the auto-elevation prompt):
 
 ```powershell
-irm https://raw.githubusercontent.com/iN4sser/IT-Support-Tools/main/toolkit.ps1 | iex
+irm https://raw.githubusercontent.com/iN4sser/IT-Support-Toolkit/main/toolkit.ps1 | iex
 ```
-
-> **Alternative (Short URL / Custom Domain)**:  
-> You can easily point a custom domain or URL shortener (e.g. `bit.ly/win-fix`) directly to the raw URL above to run:
-> ```powershell
-> irm bit.ly/win-fix | iex
-> ```
 
 ---
 

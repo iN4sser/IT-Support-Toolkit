@@ -1,6 +1,6 @@
 # IT Administration Repair and Troubleshooting Toolkit
 # Compatible with PowerShell 5.1 and PowerShell 7+ on Windows 10/11/Server
-# Public Repository: https://github.com/iN4sser/IT-Support-Tools
+# Public Repository: https://github.com/iN4sser/IT-Support-Toolkit
 
 $ErrorActionPreference = "Continue"
 
@@ -18,7 +18,7 @@ if (-not (Test-IsAdministrator)) {
     Write-Host "[*] Attempting to elevate..." -ForegroundColor Cyan
     try {
         $timestamp = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
-        $arguments = "-NoProfile -ExecutionPolicy Bypass -Command `"& { [ScriptBlock]::Create((New-Object System.Net.WebClient).DownloadString('https://raw.githubusercontent.com/iN4sser/IT-Support-Tools/main/toolkit.ps1?$timestamp')).Invoke() }`""
+        $arguments = "-NoProfile -ExecutionPolicy Bypass -Command `"& { [ScriptBlock]::Create((New-Object System.Net.WebClient).DownloadString('https://raw.githubusercontent.com/iN4sser/IT-Support-Toolkit/main/toolkit.ps1?$timestamp')).Invoke() }`""
         if ($MyInvocation.MyCommand.Path) {
             $arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$($MyInvocation.MyCommand.Path)`""
         }
