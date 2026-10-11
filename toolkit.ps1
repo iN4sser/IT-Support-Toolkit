@@ -34,6 +34,49 @@ if (-not (Test-IsAdministrator)) {
 }
 
 # -------------------------------------------------------------------------
+# -------------------------------------------------------------------------
+# DIRECT DISK I/O WIN32 ENGINE (BYPASSES OS RAM CACHE)
+# -------------------------------------------------------------------------
+if (-not ([System.Management.Automation.PSTypeName]'DirectDiskIO').Type) {
+    $csharpCode = @"
+using System;
+using System.IO;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
+
+public class DirectDiskIO {
+    private const uint GENERIC_READ = 0x80000000;
+    private const uint GENERIC_WRITE = 0x40000000;
+    private const uint CREATE_ALWAYS = 2;
+    private const uint OPEN_EXISTING = 3;
+    private const uint FILE_FLAG_NO_BUFFERING = 0x20000000;
+    private const uint FILE_FLAG_WRITE_THROUGH = 0x80000000;
+
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+    private static extern SafeFileHandle CreateFile(
+        string lpFileName,
+        uint dwDesiredAccess,
+        uint dwShareMode,
+        IntPtr lpSecurityAttributes,
+        uint dwCreationDisposition,
+        uint dwFlagsAndAttributes,
+        IntPtr hTemplateFile);
+
+    public static FileStream OpenDirect(string path, bool isWrite) {
+        uint access = isWrite ? (GENERIC_READ | GENERIC_WRITE) : GENERIC_READ;
+        uint disposition = isWrite ? CREATE_ALWAYS : OPEN_EXISTING;
+        uint flags = FILE_FLAG_NO_BUFFERING | FILE_FLAG_WRITE_THROUGH;
+
+        SafeFileHandle handle = CreateFile(path, access, 0, IntPtr.Zero, disposition, flags, IntPtr.Zero);
+        if (handle.IsInvalid) {
+            throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+        }
+        return new FileStream(handle, isWrite ? FileAccess.ReadWrite : FileAccess.Read);
+    }
+}
+"@
+    Add-Type -TypeDefinition $csharpCode -ErrorAction SilentlyContinue
+}
 # 2. CONSOLE SETUP & HELPER FUNCTIONS
 # -------------------------------------------------------------------------
 function Set-ConsoleTheme {
@@ -1017,37 +1060,47 @@ function Invoke-ModernGUI {
     }
 
     Add-ToolCard "System Audit" "Drive Speed Benchmark" "Test sequential Read and Write bandwidth in MB/s" "SPEED" {
-        Write-Output "=== STORAGE DRIVE SPEED BENCHMARK ==="
+        Write-Output "=== STORAGE DRIVE SPEED BENCHMARK (DIRECT HARDWARE I/O) ==="
         $vol = Get-Volume -DriveLetter C -ErrorAction SilentlyContinue
         $target = "$env:TEMP\gui_bench_test.tmp"
-        $sizeMB = 64
-        $buffer = New-Object byte[] (1024 * 1024)
+        $sizeMB = 256
+        $sectorSize = 1024 * 1024
+        $buffer = New-Object byte[] $sectorSize
         (New-Object System.Random).NextBytes($buffer)
 
         try {
             Write-Output "Target Volume: C:\ ($($vol.FileSystemLabel))"
-            Write-Output "Testing Sequential Write (64 MB)..."
+            Write-Output "Bypassing Windows RAM cache (FILE_FLAG_NO_BUFFERING)..."
+            Write-Output "Testing Sequential Write (256 MB Direct I/O)..."
             $sw = [System.Diagnostics.Stopwatch]::StartNew()
-            $fs = [System.IO.File]::Open($target, [System.IO.FileMode]::Create, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
-            for ($b = 0; $b -lt $sizeMB; $b++) { $fs.Write($buffer, 0, $buffer.Length) }
+            $fs = if (([System.Management.Automation.PSTypeName]'DirectDiskIO').Type) {
+                [DirectDiskIO]::OpenDirect($target, $true)
+            } else {
+                New-Object System.IO.FileStream($target, [System.IO.FileMode]::Create, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None, $sectorSize, [System.IO.FileOptions]::WriteThrough)
+            }
+            for ($b = 0; $b -lt $sizeMB; $b++) { $fs.Write($buffer, 0, $sectorSize) }
             $fs.Flush()
             $fs.Close()
             $sw.Stop()
             $wSec = $sw.Elapsed.TotalSeconds
             $wMBps = if ($wSec -gt 0) { [math]::Round($sizeMB / $wSec, 2) } else { 0 }
 
-            Write-Output "Testing Sequential Read (64 MB)..."
+            Write-Output "Testing Sequential Read (256 MB Direct I/O)..."
             $sw.Restart()
-            $fs = [System.IO.File]::Open($target, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::None)
-            $readBuf = New-Object byte[] (1024 * 1024)
-            while (($len = $fs.Read($readBuf, 0, $readBuf.Length)) -gt 0) {}
+            $fs = if (([System.Management.Automation.PSTypeName]'DirectDiskIO').Type) {
+                [DirectDiskIO]::OpenDirect($target, $false)
+            } else {
+                New-Object System.IO.FileStream($target, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::None, $sectorSize, [System.IO.FileOptions]::WriteThrough)
+            }
+            $readBuf = New-Object byte[] $sectorSize
+            while (($len = $fs.Read($readBuf, 0, $sectorSize)) -gt 0) {}
             $fs.Close()
             $sw.Stop()
             $rSec = $sw.Elapsed.TotalSeconds
             $rMBps = if ($rSec -gt 0) { [math]::Round($sizeMB / $rSec, 2) } else { 0 }
 
             Write-Output ""
-            Write-Output "Results for C:\"
+            Write-Output "Results for C:\ (Unbuffered Physical Performance):"
             Write-Output "  Sequential Write: $wMBps MB/s"
             Write-Output "  Sequential Read : $rMBps MB/s"
         }
