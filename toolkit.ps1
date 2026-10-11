@@ -990,11 +990,73 @@ function Invoke-ModernGUI {
         else { Write-Output "No battery detected on this device." }
     }
 
-    Add-ToolCard "System Audit" "Drive SMART Health" "Physical disk health status and free space" "DISK" {
-        Get-PhysicalDisk | Select-Object DeviceId,FriendlyName,MediaType,HealthStatus | Format-Table | Out-String
-        Get-Volume | Where-Object DriveLetter | Select-Object DriveLetter,FileSystemLabel,
+    Add-ToolCard "System Audit" "Drive SMART Health" "Physical disk health status, temp and free space" "DISK" {
+        Write-Output "=== PHYSICAL DISK HEALTH AND SMART STATUS ==="
+        $disks = Get-PhysicalDisk
+        foreach ($d in $disks) {
+            $szGB = [math]::Round($d.Size / 1GB, 1)
+            Write-Output "Disk #$($d.DeviceId): $($d.FriendlyName) ($($d.MediaType) - $szGB GB)"
+            Write-Output "  Health: $($d.HealthStatus) | Operational: $($d.OperationalStatus)"
+            try {
+                $c = Get-StorageReliabilityCounter -PhysicalDisk $d -ErrorAction Stop
+                if ($c) {
+                    if ($c.Temperature) { Write-Output "  Temperature: $($c.Temperature) C" }
+                    if ($c.Wear -ne $null) { Write-Output "  Wear: $($c.Wear)%" }
+                    Write-Output "  Read Errors: $($c.ReadErrorsTotal) | Write Errors: $($c.WriteErrorsTotal)"
+                }
+            } catch {
+                $w = Get-CimInstance Win32_DiskDrive | Where-Object { $_.Index -eq $d.DeviceId }
+                if ($w) { Write-Output "  SMART Status: $($w.Status)" }
+            }
+            Write-Output ""
+        }
+        Write-Output "=== LOGICAL DRIVE VOLUMES ==="
+        Get-Volume | Where-Object DriveLetter | Select-Object DriveLetter, FileSystemLabel,
             @{N="Free GB";E={[math]::Round($_.SizeRemaining/1GB,2)}},
-            @{N="Total GB";E={[math]::Round($_.Size/1GB,2)}},HealthStatus | Format-Table | Out-String
+            @{N="Total GB";E={[math]::Round($_.Size/1GB,2)}}, HealthStatus | Format-Table | Out-String
+    }
+
+    Add-ToolCard "System Audit" "Drive Speed Benchmark" "Test sequential Read and Write bandwidth in MB/s" "SPEED" {
+        Write-Output "=== STORAGE DRIVE SPEED BENCHMARK ==="
+        $vol = Get-Volume -DriveLetter C -ErrorAction SilentlyContinue
+        $target = "$env:TEMP\gui_bench_test.tmp"
+        $sizeMB = 64
+        $buffer = New-Object byte[] (1024 * 1024)
+        (New-Object System.Random).NextBytes($buffer)
+
+        try {
+            Write-Output "Target Volume: C:\ ($($vol.FileSystemLabel))"
+            Write-Output "Testing Sequential Write (64 MB)..."
+            $sw = [System.Diagnostics.Stopwatch]::StartNew()
+            $fs = [System.IO.File]::Open($target, [System.IO.FileMode]::Create, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+            for ($b = 0; $b -lt $sizeMB; $b++) { $fs.Write($buffer, 0, $buffer.Length) }
+            $fs.Flush()
+            $fs.Close()
+            $sw.Stop()
+            $wSec = $sw.Elapsed.TotalSeconds
+            $wMBps = if ($wSec -gt 0) { [math]::Round($sizeMB / $wSec, 2) } else { 0 }
+
+            Write-Output "Testing Sequential Read (64 MB)..."
+            $sw.Restart()
+            $fs = [System.IO.File]::Open($target, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::None)
+            $readBuf = New-Object byte[] (1024 * 1024)
+            while (($len = $fs.Read($readBuf, 0, $readBuf.Length)) -gt 0) {}
+            $fs.Close()
+            $sw.Stop()
+            $rSec = $sw.Elapsed.TotalSeconds
+            $rMBps = if ($rSec -gt 0) { [math]::Round($sizeMB / $rSec, 2) } else { 0 }
+
+            Write-Output ""
+            Write-Output "Results for C:\"
+            Write-Output "  Sequential Write: $wMBps MB/s"
+            Write-Output "  Sequential Read : $rMBps MB/s"
+        }
+        catch {
+            Write-Output "Benchmark error: $_"
+        }
+        finally {
+            if (Test-Path $target) { Remove-Item $target -Force -ErrorAction SilentlyContinue }
+        }
     }
 
     Add-ToolCard "System Audit" "Live Performance Audit" "CPU load, available RAM, then open PerfMon" "PERF" {
@@ -1645,44 +1707,46 @@ function Invoke-SystemAuditCategoryMenu {
     while ($true) {
         Show-ActionHeader "System Audit & Diagnostics"
         Write-Host "Select Tool:" -ForegroundColor Yellow
-        Write-Host " [1] System Overview (CPU, RAM, OS Build, Uptime)"
-        Write-Host " [2] Battery Health Audit (powercfg report)"
-        Write-Host " [3] Drive SMART Health & Storage Volumes"
-        Write-Host " [4] Live Performance Audit (CPU load & PerfMon)"
-        Write-Host " [5] Event Log Triage (Last 20 Critical/Errors)"
-        Write-Host " [6] Installed Hotfixes Audit"
-        Write-Host " [7] GPU & Display Specs Audit"
-        Write-Host " [8] Installed Drivers Audit (pnputil)"
-        Write-Host " [9] Running Services Triage (Stopped Auto Services)"
-        Write-Host " [B] Back to Main Menu"
+        Write-Host " [1]  System Overview (CPU, RAM, OS Build, Uptime)"
+        Write-Host " [2]  Battery Health Audit (powercfg report)"
+        Write-Host " [3]  Drive SMART Health, Temp & Status"
+        Write-Host " [4]  Drive Read & Write Speed Benchmark"
+        Write-Host " [5]  Live Performance Audit (CPU load & PerfMon)"
+        Write-Host " [6]  Event Log Triage (Last 20 Critical/Errors)"
+        Write-Host " [7]  Installed Hotfixes Audit"
+        Write-Host " [8]  GPU & Display Specs Audit"
+        Write-Host " [9]  Installed Drivers Audit (pnputil)"
+        Write-Host " [10] Running Services Triage (Stopped Auto Services)"
+        Write-Host " [B]  Back to Main Menu"
         Write-Host ""
-        Write-Host "Select option [1-9 / B]: " -NoNewline -ForegroundColor Cyan
+        Write-Host "Select option [1-10 / B]: " -NoNewline -ForegroundColor Cyan
         $choice = [Console]::ReadLine()
         if ($null -eq $choice -or $choice.ToUpper() -eq "B") { break }
 
         switch ($choice) {
-            "1" { Invoke-SystemInfo }
-            "2" { Invoke-BatteryReport }
-            "3" { Invoke-DriveHealth }
-            "4" { Invoke-PerformanceReport }
-            "5" { Invoke-EventLogErrors }
-            "6" { 
+            "1"  { Invoke-SystemInfo }
+            "2"  { Invoke-BatteryReport }
+            "3"  { Invoke-DriveHealth }
+            "4"  { Invoke-DriveSpeedBenchmark }
+            "5"  { Invoke-PerformanceReport }
+            "6"  { Invoke-EventLogErrors }
+            "7"  { 
                 Show-ActionHeader "Installed Hotfixes Audit"
                 Get-HotFix | Select-Object HotFixID, Description, InstalledOn | Sort-Object InstalledOn -Descending | Format-Table | Out-String
                 Wait-UserPrompt
             }
-            "7" { 
+            "8"  { 
                 Show-ActionHeader "GPU & Display Specs Audit"
                 Get-CimInstance Win32_VideoController | Select-Object Name, DriverVersion, VideoModeDescription, @{N="VRAM(MB)";E={[math]::Round($_.AdapterRAM/1MB,0)}} | Format-Table | Out-String
                 Get-CimInstance Win32_DesktopMonitor | Select-Object Name, ScreenWidth, ScreenHeight | Format-Table | Out-String
                 Wait-UserPrompt
             }
-            "8" { 
+            "9"  { 
                 Show-ActionHeader "Installed Drivers Audit"
                 pnputil /enum-drivers | Select-Object -First 40
                 Wait-UserPrompt
             }
-            "9" { 
+            "10" { 
                 Show-ActionHeader "Running Services Triage"
                 Get-Service | Where-Object { $_.StartType -eq 'Automatic' -and $_.Status -ne 'Running' } | Select-Object Name, DisplayName, Status | Format-Table | Out-String
                 Wait-UserPrompt
@@ -1690,7 +1754,6 @@ function Invoke-SystemAuditCategoryMenu {
         }
     }
 }
-
 function Invoke-KernelCategoryMenu {
     while ($true) {
         Show-ActionHeader "Kernel & DISM Repairs"
