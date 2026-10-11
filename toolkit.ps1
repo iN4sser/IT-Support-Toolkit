@@ -180,6 +180,100 @@ function Invoke-ComponentStoreCleanup {
     Wait-UserPrompt
 }
 
+# Drive Speed Benchmark Function (In-App & CLI)
+function Invoke-DriveSpeedBenchmark {
+    Show-ActionHeader "Storage Drive Benchmark (Read & Write Speed)"
+    
+    $volumes = Get-Volume | Where-Object { $_.DriveLetter -and $_.DriveType -eq 'Fixed' }
+    if (-not $volumes) {
+        Write-Host "[-] No fixed drives found for benchmark." -ForegroundColor Red
+        Wait-UserPrompt
+        return
+    }
+
+    Write-Host "Available Drives for Benchmark:" -ForegroundColor Yellow
+    for ($i = 0; $i -lt $volumes.Count; $i++) {
+        $v = $volumes[$i]
+        $freeGB = [math]::Round($v.SizeRemaining / 1GB, 1)
+        $totalGB = [math]::Round($v.Size / 1GB, 1)
+        Write-Host " [$($i + 1)] Drive $($v.DriveLetter): ($($v.FileSystemLabel)) - $freeGB GB free / $totalGB GB"
+    }
+
+    Write-Host ""
+    Write-Host "Select drive number [1-$($volumes.Count)] or press Enter for C: " -NoNewline -ForegroundColor Cyan
+    $sel = [Console]::ReadLine()
+    $chosenVolume = $volumes[0]
+    if ($sel -match '^\d+$') {
+        $idx = [int]$sel - 1
+        if ($idx -ge 0 -and $idx -lt $volumes.Count) {
+            $chosenVolume = $volumes[$idx]
+        }
+    }
+
+    $targetDrive = "$($chosenVolume.DriveLetter):\"
+    Write-Host "`r`n[*] Benchmarking Drive $targetDrive..." -ForegroundColor Yellow
+    
+    # Target temp folder on the chosen volume
+    $benchDir = if ($chosenVolume.DriveLetter -eq $env:SystemDrive.Substring(0,1)) {
+        $env:TEMP
+    } else {
+        "$targetDrive.toolkit_bench_temp"
+    }
+    
+    if (-not (Test-Path $benchDir)) {
+        New-Item -ItemType Directory -Path $benchDir -Force | Out-Null
+    }
+    
+    $testFile = Join-Path $benchDir "disk_speed_test.tmp"
+    $sizeMB = 64
+    $buffer = New-Object byte[] (1024 * 1024)
+    (New-Object System.Random).NextBytes($buffer)
+
+    try {
+        Write-Host "[*] Testing Sequential Write (64 MB)..." -ForegroundColor Yellow
+        $sw = [System.Diagnostics.Stopwatch]::StartNew()
+        $fs = [System.IO.File]::Open($testFile, [System.IO.FileMode]::Create, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+        for ($b = 0; $b -lt $sizeMB; $b++) {
+            $fs.Write($buffer, 0, $buffer.Length)
+        }
+        $fs.Flush()
+        $fs.Close()
+        $sw.Stop()
+        $writeSec = $sw.Elapsed.TotalSeconds
+        $writeMBps = if ($writeSec -gt 0) { [math]::Round($sizeMB / $writeSec, 2) } else { 0 }
+
+        Write-Host "[*] Testing Sequential Read (64 MB)..." -ForegroundColor Yellow
+        $sw.Restart()
+        $fs = [System.IO.File]::Open($testFile, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::None)
+        $readBuf = New-Object byte[] (1024 * 1024)
+        while (($readLen = $fs.Read($readBuf, 0, $readBuf.Length)) -gt 0) {}
+        $fs.Close()
+        $sw.Stop()
+        $readSec = $sw.Elapsed.TotalSeconds
+        $readMBps = if ($readSec -gt 0) { [math]::Round($sizeMB / $readSec, 2) } else { 0 }
+
+        Write-Host ""
+        Write-Host "================ BENCHMARK RESULTS ================" -ForegroundColor DarkGreen
+        Write-Host " Target Drive          : $targetDrive ($($chosenVolume.FileSystemLabel))" -ForegroundColor White
+        Write-Host " Sequential Write Speed: $writeMBps MB/s" -ForegroundColor Green
+        Write-Host " Sequential Read Speed : $readMBps MB/s" -ForegroundColor Green
+        Write-Host "===================================================" -ForegroundColor DarkGreen
+    }
+    catch {
+        Write-Host "[-] Benchmark error: $_" -ForegroundColor Red
+    }
+    finally {
+        if (Test-Path $testFile) {
+            Remove-Item $testFile -Force -ErrorAction SilentlyContinue
+        }
+        if ($benchDir -ne $env:TEMP -and (Test-Path $benchDir)) {
+            Remove-Item $benchDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    Wait-UserPrompt
+}
+
 # [7] Drive Health (SMART)
 function Invoke-DriveHealth {
     Show-ActionHeader "Storage Drive Health & SMART Status"
