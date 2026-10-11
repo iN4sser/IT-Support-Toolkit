@@ -2,6 +2,10 @@
 # Compatible with PowerShell 5.1 and PowerShell 7+ on Windows 10/11/Server
 # Public Repository: https://github.com/iN4sser/IT-Support-Toolkit
 
+param(
+    [switch]$CLI
+)
+
 $ErrorActionPreference = "Continue"
 
 # -------------------------------------------------------------------------
@@ -2346,5 +2350,16 @@ function Start-ToolkitMenu {
     }
 }
 
-# Entrypoint
-Start-ToolkitMenu
+# Entrypoint - Launches GUI by default, falls back to CLI with -CLI switch
+if ($CLI) {
+    Start-ToolkitMenu
+} else {
+    try {
+        Invoke-ModernGUI
+    }
+    catch {
+        Write-Host "[-] GUI failed to launch: $_" -ForegroundColor Red
+        Write-Host "[*] Falling back to Terminal mode..." -ForegroundColor Yellow
+        Start-ToolkitMenu
+    }
+}
